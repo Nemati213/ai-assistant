@@ -1,0 +1,11 @@
+package ru.itmo.nemat.aiservice.dto.openrouter;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record ContentPart(
+        String type,
+        String text,
+        @JsonProperty("image_url") ImageUrl imageUrl
+) {}

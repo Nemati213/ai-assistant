@@ -1,0 +1,91 @@
+server:
+  port: 8083
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: ai-service
+  datasource:
+    url: ${AI_DB_URL:jdbc:postgresql://localhost:5432/ai_service_db}
+    username: ${AI_DB_USERNAME:curator_user}
+    password: ${AI_DB_PASSWORD:curator_password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${AI_DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${AI_DB_POOL_MIN_IDLE:2}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:5000}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    validate-on-migrate: true
+    clean-disabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ai-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+
+openrouter:
+  url: https://openrouter.ai/api/v1/chat/completions
+  api-key: ${OPENROUTER_API_KEY}
+  model: ${OPENROUTER_MODEL:openai/gpt-5.4-mini}
+  connect-timeout: ${OPENROUTER_CONNECT_TIMEOUT:10s}
+  read-timeout: ${OPENROUTER_READ_TIMEOUT:90s}
+
+app:
+  ai:
+    context:
+      message-limit: ${AI_CONTEXT_MESSAGE_LIMIT:20}
+    publisher:
+      poll-interval-ms: ${AI_PUBLISHER_POLL_INTERVAL_MS:250}
+      batch-size: ${AI_PUBLISHER_BATCH_SIZE:50}
+      timeout-seconds: ${AI_PUBLISHER_TIMEOUT_SECONDS:10}
+      retry-base-delay-ms: ${AI_PUBLISHER_RETRY_BASE_DELAY_MS:1000}
+      retry-max-delay-ms: ${AI_PUBLISHER_RETRY_MAX_DELAY_MS:60000}
+    recovery:
+      poll-interval-ms: ${AI_RECOVERY_POLL_INTERVAL_MS:30000}
+      processing-timeout: ${AI_PROCESSING_TIMEOUT:2m}
+      batch-size: ${AI_RECOVERY_BATCH_SIZE:50}
+  kafka:
+    retry:
+      interval-ms: ${KAFKA_RETRY_INTERVAL_MS:1000}
+      max-attempts: ${KAFKA_RETRY_MAX_ATTEMPTS:3}
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] [requestId=%X{requestId:-}] [kafka=%X{kafkaTopic:-}:%X{kafkaPartition:-}@%X{kafkaOffset:-}] %logger{36} - %msg%n"
+  level:
+    root: INFO
+    ru.itmo.nemat.aiservice: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
