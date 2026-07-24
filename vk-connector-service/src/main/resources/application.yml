@@ -1,0 +1,117 @@
+server:
+  port: 8081
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: vk-connector-service
+  datasource:
+    url: ${VK_DB_URL:jdbc:postgresql://localhost:5432/vk_connector_db}
+    username: ${VK_DB_USERNAME:curator_user}
+    password: ${VK_DB_PASSWORD:curator_password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${VK_DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${VK_DB_POOL_MIN_IDLE:2}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:5000}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    validate-on-migrate: true
+    clean-disabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+    consumer:
+      group-id: vk-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+
+app:
+  security:
+    encryption-key: ${APP_SECRET_ENCRYPTION_KEY}
+  kafka:
+    retry:
+      interval-ms: ${KAFKA_RETRY_INTERVAL_MS:1000}
+      max-attempts: ${KAFKA_RETRY_MAX_ATTEMPTS:3}
+  vk-status-outbox:
+    poll-interval-ms: ${VK_STATUS_OUTBOX_POLL_INTERVAL_MS:250}
+    batch-size: ${VK_STATUS_OUTBOX_BATCH_SIZE:50}
+    publish-timeout-seconds: ${VK_STATUS_OUTBOX_PUBLISH_TIMEOUT_SECONDS:10}
+    retry-base-delay-ms: ${VK_STATUS_OUTBOX_RETRY_BASE_DELAY_MS:1000}
+    retry-max-delay-ms: ${VK_STATUS_OUTBOX_RETRY_MAX_DELAY_MS:60000}
+    retention-days: ${VK_STATUS_OUTBOX_RETENTION_DAYS:7}
+    cleanup-cron: ${VK_STATUS_OUTBOX_CLEANUP_CRON:0 30 3 * * *}
+  vk-delivery-outbox:
+    poll-interval-ms: ${VK_DELIVERY_OUTBOX_POLL_INTERVAL_MS:250}
+    batch-size: ${VK_DELIVERY_OUTBOX_BATCH_SIZE:50}
+    publish-timeout-seconds: ${VK_DELIVERY_OUTBOX_PUBLISH_TIMEOUT_SECONDS:10}
+    retry-base-delay-ms: ${VK_DELIVERY_OUTBOX_RETRY_BASE_DELAY_MS:1000}
+    retry-max-delay-ms: ${VK_DELIVERY_OUTBOX_RETRY_MAX_DELAY_MS:60000}
+    retention-days: ${VK_DELIVERY_OUTBOX_RETENTION_DAYS:7}
+    cleanup-cron: ${VK_DELIVERY_OUTBOX_CLEANUP_CRON:0 35 3 * * *}
+  vk-delivery-retry:
+    poll-interval-ms: ${VK_DELIVERY_RETRY_POLL_INTERVAL_MS:1000}
+    batch-size: ${VK_DELIVERY_RETRY_BATCH_SIZE:50}
+    max-automatic-retries: ${VK_DELIVERY_MAX_AUTOMATIC_RETRIES:3}
+    retry-base-delay: ${VK_DELIVERY_RETRY_BASE_DELAY:2s}
+    retry-max-delay: ${VK_DELIVERY_RETRY_MAX_DELAY:30s}
+    processing-timeout: ${VK_DELIVERY_PROCESSING_TIMEOUT:2m}
+  vk-webhook-outbox:
+    poll-interval-ms: ${VK_WEBHOOK_OUTBOX_POLL_INTERVAL_MS:250}
+    batch-size: ${VK_WEBHOOK_OUTBOX_BATCH_SIZE:100}
+    publish-timeout-seconds: ${VK_WEBHOOK_OUTBOX_PUBLISH_TIMEOUT_SECONDS:10}
+    retry-base-delay-ms: ${VK_WEBHOOK_OUTBOX_RETRY_BASE_DELAY_MS:1000}
+    retry-max-delay-ms: ${VK_WEBHOOK_OUTBOX_RETRY_MAX_DELAY_MS:60000}
+    retention-days: ${VK_WEBHOOK_OUTBOX_RETENTION_DAYS:7}
+    cleanup-cron: ${VK_WEBHOOK_OUTBOX_CLEANUP_CRON:0 40 3 * * *}
+
+vk:
+  callback:
+    url: ${VK_CALLBACK_URL}
+    reconcile-initial-delay-ms: ${VK_CALLBACK_RECONCILE_INITIAL_DELAY_MS:30000}
+    reconcile-interval-ms: ${VK_CALLBACK_RECONCILE_INTERVAL_MS:21600000}
+  user-profile:
+    cache-ttl: ${VK_USER_PROFILE_CACHE_TTL:24h}
+    cache-size: ${VK_USER_PROFILE_CACHE_SIZE:100000}
+  http:
+    connect-timeout: ${VK_HTTP_CONNECT_TIMEOUT:10s}
+    read-timeout: ${VK_HTTP_READ_TIMEOUT:30s}
+  api-version: ${VK_API_VERSION:5.199}
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] [requestId=%X{requestId:-}] [kafka=%X{kafkaTopic:-}:%X{kafkaPartition:-}@%X{kafkaOffset:-}] %logger{36} - %msg%n"
+  level:
+    root: INFO
+    ru.itmo.nemat.vkconnector: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
