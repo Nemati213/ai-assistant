@@ -124,6 +124,25 @@ class BillingServiceTest {
     }
 
     @Test
+    void replaysTransactionCreatedWhileWaitingForBalanceLock() {
+        UUID requestId = UUID.randomUUID();
+        Curator curator = curator(new BigDecimal("100"));
+        BillingTransaction existing = transaction(requestId, curator.getId());
+        arrangeNewCharge(requestId, curator);
+        when(transactionRepository.findById(requestId))
+                .thenReturn(Optional.empty(), Optional.of(existing));
+
+        BillingResultEvent result = billingService.charge(command(requestId));
+
+        assertThat(result.status()).isEqualTo("CHARGED");
+        assertThat(result.balanceAfter()).isZero();
+        assertThat(curator.getBalanceTokens()).isEqualByComparingTo("100");
+        assertThat(curator.getReservedTokens()).isEqualByComparingTo("100");
+        verify(transactionRepository, never()).save(any());
+        verify(reservationRepository, never()).save(any());
+    }
+
+    @Test
     void rejectsReusedRequestIdWithDifferentAmount() {
         UUID requestId = UUID.randomUUID();
         BillingTransaction existing = BillingTransaction.builder()
@@ -207,5 +226,23 @@ class BillingServiceTest {
                 new BigDecimal("200000"),
                 new BigDecimal("100")
         );
+    }
+
+    private BillingTransaction transaction(UUID requestId, UUID curatorId) {
+        return BillingTransaction.builder()
+                .requestId(requestId)
+                .curatorId(curatorId)
+                .vkGroupId("100")
+                .aiTokens(30)
+                .providerCostUsd(new BigDecimal("0.00015"))
+                .creditsCharged(new BigDecimal("100"))
+                .creditsPerUsd(new BigDecimal("200000"))
+                .minimumCharge(new BigDecimal("100"))
+                .status(BillingStatus.CHARGED)
+                .balanceAfter(BigDecimal.ZERO)
+                .createdAt(Instant.now())
+                .publishAttempts(0)
+                .nextPublishAttemptAt(Instant.now())
+                .build();
     }
 }

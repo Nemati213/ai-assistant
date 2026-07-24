@@ -50,6 +50,12 @@ public class BillingService {
         Curator curator = curatorRepository.findByIdForUpdate(group.getCurator().getId())
                 .orElseThrow(() -> new IllegalArgumentException("Curator not found"));
 
+        BillingTransaction concurrentTransaction =
+                transactionRepository.findById(command.requestId()).orElse(null);
+        if (concurrentTransaction != null) {
+            return replayResult(command, concurrentTransaction);
+        }
+
         BigDecimal balance = balance(curator);
         BigDecimal reserved = reserved(curator);
         BigDecimal amount = expectedCredits(command);
