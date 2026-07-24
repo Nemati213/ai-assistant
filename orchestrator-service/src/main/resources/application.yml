@@ -1,0 +1,111 @@
+server:
+  port: 8082
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: orchestrator-service
+
+  datasource:
+    url: ${ORCHESTRATOR_DB_URL:jdbc:postgresql://localhost:5432/orchestrator_db}
+    username: ${ORCHESTRATOR_DB_USERNAME:curator_user}
+    password: ${ORCHESTRATOR_DB_PASSWORD:curator_password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${ORCHESTRATOR_DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${ORCHESTRATOR_DB_POOL_MIN_IDLE:2}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:5000}
+
+  jpa:
+    open-in-view: false
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate
+    show-sql: ${JPA_SHOW_SQL:false}
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    validate-on-migrate: true
+    clean-disabled: true
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+    consumer:
+      group-id: orchestrator-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] [requestId=%X{requestId:-}] [kafka=%X{kafkaTopic:-}:%X{kafkaPartition:-}@%X{kafkaOffset:-}] %logger{36} - %msg%n"
+  level:
+    root: INFO
+    ru.itmo.nemat.orchestrator: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+app:
+  billing:
+    pricing:
+      credits-per-usd: ${BILLING_CREDITS_PER_USD:200000}
+      minimum-charge: ${BILLING_MINIMUM_CHARGE:100}
+      reservation-credits: ${BILLING_RESERVATION_CREDITS:1000}
+      reservation-ttl: ${BILLING_RESERVATION_TTL:24h}
+  outbox:
+    poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:250}
+    batch-size: ${OUTBOX_BATCH_SIZE:50}
+    publish-timeout-seconds: ${OUTBOX_PUBLISH_TIMEOUT_SECONDS:10}
+    retry-base-delay-ms: ${OUTBOX_RETRY_BASE_DELAY_MS:1000}
+    retry-max-delay-ms: ${OUTBOX_RETRY_MAX_DELAY_MS:60000}
+    retention-days: ${OUTBOX_RETENTION_DAYS:7}
+    cleanup-cron: ${OUTBOX_CLEANUP_CRON:0 0 3 * * *}
+  workflow-watchdog:
+    poll-interval-ms: ${WORKFLOW_WATCHDOG_POLL_INTERVAL_MS:30000}
+    batch-size: ${WORKFLOW_WATCHDOG_BATCH_SIZE:50}
+    max-recovery-attempts: ${WORKFLOW_WATCHDOG_MAX_RECOVERY_ATTEMPTS:10}
+    curator-action-timeout: ${WORKFLOW_WATCHDOG_CURATOR_ACTION_TIMEOUT:10m}
+    reservation-timeout: ${WORKFLOW_WATCHDOG_RESERVATION_TIMEOUT:2m}
+    ai-timeout: ${WORKFLOW_WATCHDOG_AI_TIMEOUT:3m}
+    approval-delivery-timeout: ${WORKFLOW_WATCHDOG_APPROVAL_TIMEOUT:10m}
+    billing-timeout: ${WORKFLOW_WATCHDOG_BILLING_TIMEOUT:2m}
+    vk-delivery-timeout: ${WORKFLOW_WATCHDOG_VK_TIMEOUT:2m}
+    refund-timeout: ${WORKFLOW_WATCHDOG_REFUND_TIMEOUT:2m}
+  dead-letter:
+    poll-interval-ms: ${DLT_POLL_INTERVAL_MS:5000}
+    batch-size: ${DLT_BATCH_SIZE:50}
+    max-retry-attempts: ${DLT_MAX_RETRY_ATTEMPTS:3}
+    initial-retry-delay: ${DLT_INITIAL_RETRY_DELAY:5s}
+    retry-base-delay: ${DLT_RETRY_BASE_DELAY:5s}
+    retry-max-delay: ${DLT_RETRY_MAX_DELAY:1m}
+    publish-timeout: ${DLT_PUBLISH_TIMEOUT:10s}
+  kafka:
+    retry:
+      interval-ms: ${KAFKA_RETRY_INTERVAL_MS:1000}
+      max-attempts: ${KAFKA_RETRY_MAX_ATTEMPTS:3}
