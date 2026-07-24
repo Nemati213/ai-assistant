@@ -1,0 +1,31 @@
+apply plugin: 'org.springframework.boot'
+
+dependencies {
+    // Подключение общей библиотеки shared-libs
+    implementation project(':shared-libs')
+
+    // Очереди и JSON
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+    implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'org.springframework.boot:spring-boot-starter-json'
+
+    // База данных JPA и драйвер Postgres
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    implementation 'org.springframework:spring-web'
+    runtimeOnly 'org.postgresql:postgresql'
+
+    implementation 'com.bucket4j:bucket4j_jdk17-core:8.17.0'
+    implementation 'com.bucket4j:bucket4j_jdk17-redis-common:8.17.0'
+    implementation 'com.bucket4j:bucket4j_jdk17-lettuce:8.17.0'
+    implementation 'io.lettuce:lettuce-core'
+
+    // Стартер Телеграм-бота
+    implementation 'org.telegram:telegrambots-spring-boot-starter:6.8.0'
+    implementation 'javax.xml.bind:jaxb-api:2.3.1'
+    implementation 'org.glassfish.jaxb:jaxb-runtime:2.3.1'
+
+}
