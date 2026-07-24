@@ -1,0 +1,296 @@
+x-app-common: &app-common
+  restart: unless-stopped
+  networks:
+    - backend
+  security_opt:
+    - no-new-privileges:true
+  read_only: true
+  tmpfs:
+    - /tmp:size=128m,mode=1777
+  stop_grace_period: 45s
+  logging:
+    driver: json-file
+    options:
+      max-size: 20m
+      max-file: "5"
+
+x-kafka-environment: &kafka-environment
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  KAFKA_RETRY_INTERVAL_MS: ${KAFKA_RETRY_INTERVAL_MS:-1000}
+  KAFKA_RETRY_MAX_ATTEMPTS: ${KAFKA_RETRY_MAX_ATTEMPTS:-3}
+
+services:
+  postgres:
+    image: postgres:17.10-alpine3.23
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
+      TG_DB_USERNAME: ${TG_DB_USERNAME}
+      TG_DB_PASSWORD: ${TG_DB_PASSWORD}
+      VK_DB_USERNAME: ${VK_DB_USERNAME}
+      VK_DB_PASSWORD: ${VK_DB_PASSWORD}
+      ORCHESTRATOR_DB_USERNAME: ${ORCHESTRATOR_DB_USERNAME}
+      ORCHESTRATOR_DB_PASSWORD: ${ORCHESTRATOR_DB_PASSWORD}
+      AI_DB_USERNAME: ${AI_DB_USERNAME}
+      AI_DB_PASSWORD: ${AI_DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    shm_size: 256mb
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli -a "$$REDIS_PASSWORD" ping | grep PONG
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  kafka:
+    image: apache/kafka:4.1.1
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  tg-connector-service:
+    <<: *app-common
+    build:
+      context: .
+      args:
+        SERVICE: tg-connector-service
+    environment:
+      <<: *kafka-environment
+      TG_DB_URL: jdbc:postgresql://postgres:5432/tg_connector_db
+      TG_DB_USERNAME: ${TG_DB_USERNAME}
+      TG_DB_PASSWORD: ${TG_DB_PASSWORD}
+      REDIS_URI: redis://:${REDIS_PASSWORD}@redis:6379
+      APP_SECRET_ENCRYPTION_KEY: ${APP_SECRET_ENCRYPTION_KEY}
+      TELEGRAM_BOT_NAME: ${TELEGRAM_BOT_NAME}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_ADMIN_BOT_NAME: ${TELEGRAM_ADMIN_BOT_NAME}
+      TELEGRAM_ADMIN_BOT_TOKEN: ${TELEGRAM_ADMIN_BOT_TOKEN}
+      TELEGRAM_ADMIN_IDS: ${TELEGRAM_ADMIN_IDS}
+      TELEGRAM_STARS_PRODUCT_PAYLOAD: ${TELEGRAM_STARS_PRODUCT_PAYLOAD:-pro-350-stars-v1}
+      TELEGRAM_STARS_PRO_PRICE: ${TELEGRAM_STARS_PRO_PRICE:-350}
+      TELEGRAM_STARS_PRO_CREDITS: ${TELEGRAM_STARS_PRO_CREDITS:-300000}
+      BILLING_CREDITS_PER_USD: ${BILLING_CREDITS_PER_USD:-200000}
+      BILLING_MINIMUM_CHARGE: ${BILLING_MINIMUM_CHARGE:-100}
+      BILLING_RESERVATION_CREDITS: ${BILLING_RESERVATION_CREDITS:-1000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8084/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+
+  vk-connector-service:
+    <<: *app-common
+    build:
+      context: .
+      args:
+        SERVICE: vk-connector-service
+    environment:
+      <<: *kafka-environment
+      VK_DB_URL: jdbc:postgresql://postgres:5432/vk_connector_db
+      VK_DB_USERNAME: ${VK_DB_USERNAME}
+      VK_DB_PASSWORD: ${VK_DB_PASSWORD}
+      APP_SECRET_ENCRYPTION_KEY: ${APP_SECRET_ENCRYPTION_KEY}
+      VK_CALLBACK_URL: https://${PUBLIC_DOMAIN}/vk/webhook
+      VK_API_VERSION: ${VK_API_VERSION:-5.199}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8081/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+
+  orchestrator-service:
+    <<: *app-common
+    build:
+      context: .
+      args:
+        SERVICE: orchestrator-service
+    environment:
+      <<: *kafka-environment
+      ORCHESTRATOR_DB_URL: jdbc:postgresql://postgres:5432/orchestrator_db
+      ORCHESTRATOR_DB_USERNAME: ${ORCHESTRATOR_DB_USERNAME}
+      ORCHESTRATOR_DB_PASSWORD: ${ORCHESTRATOR_DB_PASSWORD}
+      BILLING_CREDITS_PER_USD: ${BILLING_CREDITS_PER_USD:-200000}
+      BILLING_MINIMUM_CHARGE: ${BILLING_MINIMUM_CHARGE:-100}
+      BILLING_RESERVATION_CREDITS: ${BILLING_RESERVATION_CREDITS:-1000}
+      BILLING_RESERVATION_TTL: ${BILLING_RESERVATION_TTL:-24h}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8082/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+
+  ai-service:
+    <<: *app-common
+    build:
+      context: .
+      args:
+        SERVICE: ai-service
+    environment:
+      <<: *kafka-environment
+      AI_DB_URL: jdbc:postgresql://postgres:5432/ai_service_db
+      AI_DB_USERNAME: ${AI_DB_USERNAME}
+      AI_DB_PASSWORD: ${AI_DB_PASSWORD}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openai/gpt-5.4-mini}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8083/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      vk-connector-service:
+        condition: service_healthy
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    profiles:
+      - ops
+    restart: unless-stopped
+    environment:
+      KAFKA_CLUSTERS_0_NAME: production
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+  caddy_data:
+  caddy_config:

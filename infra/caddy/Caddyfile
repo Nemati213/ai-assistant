@@ -1,0 +1,16 @@
+{
+    email {$ACME_EMAIL}
+}
+
+{$PUBLIC_DOMAIN} {
+    encode zstd gzip
+
+    @vk_webhook path /vk/webhook
+    handle @vk_webhook {
+        reverse_proxy vk-connector-service:8081
+    }
+
+    handle {
+        respond "Not Found" 404
+    }
+}
