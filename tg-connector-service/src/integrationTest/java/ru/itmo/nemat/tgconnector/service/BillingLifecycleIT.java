@@ -1,9 +1,14 @@
 package ru.itmo.nemat.tgconnector.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
@@ -12,8 +17,11 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -25,9 +33,11 @@ import ru.itmo.nemat.tgconnector.dto.BillingRefundCommand;
 import ru.itmo.nemat.tgconnector.dto.BillingRefundResultEvent;
 import ru.itmo.nemat.tgconnector.dto.BillingResultEvent;
 import ru.itmo.nemat.tgconnector.persistence.EncryptedStringConverter;
+import ru.itmo.nemat.tgconnector.repository.BillingTransactionRepository;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -36,16 +46,23 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @DataJpaTest(properties = {
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.flyway.enabled=true",
+        "spring.datasource.hikari.connection-timeout=1000",
         "app.security.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 })
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@ImportAutoConfiguration(JacksonAutoConfiguration.class)
 @Import({
         BillingService.class,
         BillingRefundService.class,
@@ -57,6 +74,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 })
 @Testcontainers
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@SuppressWarnings("unchecked")
 class BillingLifecycleIT {
 
     @Container
@@ -68,7 +86,10 @@ class BillingLifecycleIT {
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+        registry.add(
+                "spring.datasource.url",
+                () -> postgres.getJdbcUrl() + "&socketTimeout=2&connectTimeout=1"
+        );
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
     }
@@ -81,6 +102,12 @@ class BillingLifecycleIT {
     private BalanceCreditService creditService;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private BillingTransactionRepository transactionRepository;
+    @Autowired
+    private ObjectMapper objectMapper;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
     @MockitoBean
     private KafkaTemplate<String, String> kafkaTemplate;
 
@@ -221,6 +248,81 @@ class BillingLifecycleIT {
         assertThat(count("balance_credit_transactions")).isEqualTo(1);
     }
 
+    @Test
+    void pendingBillingResultSurvivesKafkaOutageAndPublishesAfterRecovery() {
+        Fixture fixture = seedBillingFixture(new BigDecimal("500"));
+        billingService.charge(chargeCommand(fixture.requestId()));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.failedFuture(
+                        new IllegalStateException("Kafka unavailable")
+                ));
+
+        BillingResultPublisher failedPublisher = newResultPublisher();
+        inTransaction(failedPublisher::publishReadyResults);
+
+        BillingPublishState failed = billingPublishState(fixture.requestId());
+        assertThat(failed.publishedAt()).isNull();
+        assertThat(failed.attempts()).isEqualTo(1);
+        assertThat(failed.lastError()).contains("Kafka unavailable");
+        assertThat(failed.nextAttemptAt()).isAfter(Instant.now().minusSeconds(1));
+
+        jdbcTemplate.update(
+                "UPDATE billing_transactions "
+                        + "SET next_publish_attempt_at = CURRENT_TIMESTAMP - INTERVAL '1 second' "
+                        + "WHERE request_id = ?",
+                fixture.requestId()
+        );
+        reset(kafkaTemplate);
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.completedFuture(null));
+
+        BillingResultPublisher restartedPublisher = newResultPublisher();
+        inTransaction(restartedPublisher::publishReadyResults);
+
+        BillingPublishState recovered = billingPublishState(fixture.requestId());
+        assertThat(recovered.publishedAt()).isNotNull();
+        assertThat(recovered.attempts()).isEqualTo(1);
+        assertThat(recovered.lastError()).isNull();
+
+        ArgumentCaptor<ProducerRecord<String, String>> captor =
+                ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafkaTemplate).send(captor.capture());
+        assertThat(captor.getValue().topic()).isEqualTo("billing-results");
+        assertThat(captor.getValue().key()).isEqualTo(fixture.requestId().toString());
+    }
+
+    @Test
+    void chargeCanBeRetriedAfterPostgresPauseWithoutPartialWrite() {
+        Fixture fixture = seedBillingFixture(new BigDecimal("500"));
+        boolean paused = false;
+        try {
+            postgres.getDockerClient()
+                    .pauseContainerCmd(postgres.getContainerId())
+                    .exec();
+            paused = true;
+
+            assertThatThrownBy(() ->
+                    billingService.charge(chargeCommand(fixture.requestId()))
+            ).isInstanceOf(RuntimeException.class);
+        } finally {
+            if (paused) {
+                postgres.getDockerClient()
+                        .unpauseContainerCmd(postgres.getContainerId())
+                        .exec();
+                awaitDatabase();
+            }
+        }
+
+        BillingResultEvent recovered =
+                billingService.charge(chargeCommand(fixture.requestId()));
+
+        assertThat(recovered.status()).isEqualTo("CHARGED");
+        assertThat(recovered.balanceAfter()).isEqualByComparingTo("400");
+        assertThat(balance(fixture.curatorId())).isEqualByComparingTo("400");
+        assertThat(reservedBalance(fixture.curatorId())).isZero();
+        assertThat(count("billing_transactions")).isEqualTo(1);
+    }
+
     private BalanceCreditService.CreditResult creditTelegramPayment() {
         return creditService.creditTelegramStars(
                 123L,
@@ -338,6 +440,80 @@ class BillingLifecycleIT {
         return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class);
     }
 
+    private BillingResultPublisher newResultPublisher() {
+        BillingResultPublisher publisher = new BillingResultPublisher(
+                transactionRepository,
+                kafkaTemplate,
+                objectMapper
+        );
+        ReflectionTestUtils.setField(publisher, "batchSize", 10);
+        ReflectionTestUtils.setField(publisher, "timeoutSeconds", 1L);
+        ReflectionTestUtils.setField(publisher, "retryBaseDelayMs", 10L);
+        ReflectionTestUtils.setField(publisher, "retryMaxDelayMs", 100L);
+        return publisher;
+    }
+
+    private void inTransaction(Runnable action) {
+        new TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> action.run());
+    }
+
+    private void awaitDatabase() {
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        RuntimeException lastFailure = null;
+        while (System.nanoTime() < deadline) {
+            try {
+                Integer result = jdbcTemplate.queryForObject("SELECT 1", Integer.class);
+                if (Integer.valueOf(1).equals(result)) {
+                    return;
+                }
+            } catch (RuntimeException exception) {
+                lastFailure = exception;
+            }
+            try {
+                Thread.sleep(250);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(
+                        "Interrupted while waiting for PostgreSQL recovery",
+                        exception
+                );
+            }
+        }
+        throw new AssertionError(
+                "PostgreSQL did not recover after container pause",
+                lastFailure
+        );
+    }
+
+    private BillingPublishState billingPublishState(UUID requestId) {
+        return jdbcTemplate.queryForObject("""
+                        SELECT result_published_at, publish_attempts,
+                               next_publish_attempt_at, last_publish_error
+                        FROM billing_transactions
+                        WHERE request_id = ?
+                        """,
+                (resultSet, rowNumber) -> {
+                    Timestamp publishedAt = resultSet.getTimestamp("result_published_at");
+                    return new BillingPublishState(
+                            publishedAt == null ? null : publishedAt.toInstant(),
+                            resultSet.getInt("publish_attempts"),
+                            resultSet.getTimestamp("next_publish_attempt_at").toInstant(),
+                            resultSet.getString("last_publish_error")
+                    );
+                },
+                requestId
+        );
+    }
+
     private record Fixture(UUID requestId, UUID curatorId) {
+    }
+
+    private record BillingPublishState(
+            Instant publishedAt,
+            int attempts,
+            Instant nextAttemptAt,
+            String lastError
+    ) {
     }
 }
