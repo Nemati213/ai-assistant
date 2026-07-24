@@ -16,23 +16,19 @@ public class VkMessageConsumer {
     private final ObjectMapper objectMapper;
     private final WorkflowOrchestrator workflowOrchestrator;
 
-
     @KafkaListener(topics = "vk-incoming-messages", groupId = "orchestrator-group")
     public void consume(String messageJson) {
-        log.debug("Получено сырое сообщение из Kafka: {}", messageJson);
+        log.debug("VK message received from Kafka topic vk-incoming-messages");
 
         try {
             VkMessageEvent event = objectMapper.readValue(messageJson, VkMessageEvent.class);
 
-            log.info("[{}] Событие из ВК успешно получено и десериализовано. Запускаем процесс оркестрации.",
-                    event.requestId());
+            log.info("[{}] VK event accepted, starting orchestration", event.requestId());
 
             workflowOrchestrator.startWorkflow(event);
-
-        } catch (Exception e) {
-            log.error("Критическая ошибка при чтении или десериализации сообщения из топика vk-incoming-messages: {}",
-                    messageJson, e);
-            throw new IllegalStateException("Failed to process incoming VK message", e);
+        } catch (Exception exception) {
+            log.error("Failed to read VK message from topic vk-incoming-messages", exception);
+            throw new IllegalStateException("Failed to process incoming VK message", exception);
         }
     }
 }

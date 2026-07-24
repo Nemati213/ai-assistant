@@ -15,6 +15,7 @@ x-app-common: &app-common
       max-file: "5"
 
 x-kafka-environment: &kafka-environment
+  APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
   KAFKA_BOOTSTRAP_SERVERS: kafka:9092
   KAFKA_RETRY_INTERVAL_MS: ${KAFKA_RETRY_INTERVAL_MS:-1000}
   KAFKA_RETRY_MAX_ATTEMPTS: ${KAFKA_RETRY_MAX_ATTEMPTS:-3}

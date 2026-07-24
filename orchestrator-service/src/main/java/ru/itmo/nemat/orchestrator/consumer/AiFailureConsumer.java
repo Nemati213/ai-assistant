@@ -23,7 +23,7 @@ public class AiFailureConsumer {
                     objectMapper.readValue(payload, AiGenerationFailedEvent.class);
             workflowOrchestrator.handleAiFailure(event);
         } catch (Exception exception) {
-            log.error("Failed to process AI generation failure: {}", payload, exception);
+            log.error("Failed to process AI generation failure event", exception);
             throw new IllegalStateException(
                     "Failed to process AI generation failure",
                     exception

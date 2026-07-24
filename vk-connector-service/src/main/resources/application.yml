@@ -100,7 +100,7 @@ logging:
     console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] [requestId=%X{requestId:-}] [kafka=%X{kafkaTopic:-}:%X{kafkaPartition:-}@%X{kafkaOffset:-}] %logger{36} - %msg%n"
   level:
     root: INFO
-    ru.itmo.nemat.vkconnector: DEBUG
+    ru.itmo.nemat.vkconnector: ${APP_LOG_LEVEL:INFO}
 
 management:
   endpoints:
@@ -112,6 +112,11 @@ management:
       probes:
         enabled: true
       show-details: never
+      group:
+        liveness:
+          include: livenessState,ping
+        readiness:
+          include: readinessState,db,diskSpace,ping
   metrics:
     tags:
       application: ${spring.application.name}
