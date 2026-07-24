@@ -1,0 +1,127 @@
+server:
+  port: 8084
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: tg-connector-service
+  datasource:
+    url: ${TG_DB_URL:jdbc:postgresql://localhost:5432/tg_connector_db}
+    username: ${TG_DB_USERNAME:curator_user}
+    password: ${TG_DB_PASSWORD:curator_password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${TG_DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${TG_DB_POOL_MIN_IDLE:2}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:5000}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    validate-on-migrate: true
+    clean-disabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: tg-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+
+telegram:
+  bot-name: ${TELEGRAM_BOT_NAME}
+  bot-token: ${TELEGRAM_BOT_TOKEN}
+  admin:
+    bot-name: ${TELEGRAM_ADMIN_BOT_NAME:}
+    bot-token: ${TELEGRAM_ADMIN_BOT_TOKEN:}
+    admin-ids: ${TELEGRAM_ADMIN_IDS:}
+  ui:
+    transient-message-ttl: ${TELEGRAM_TRANSIENT_MESSAGE_TTL:5s}
+  stars:
+    product-payload: ${TELEGRAM_STARS_PRODUCT_PAYLOAD:pro-350-stars-v1}
+    price: ${TELEGRAM_STARS_PRO_PRICE:350}
+    credits: ${TELEGRAM_STARS_PRO_CREDITS:300000}
+  rate-limit:
+    redis-uri: ${REDIS_URI:redis://localhost:6379}
+    bucket-key: ${TELEGRAM_RATE_LIMIT_BUCKET_KEY:telegram:global-api-limit}
+    capacity: ${TELEGRAM_RATE_LIMIT_CAPACITY:30}
+    refill-tokens: ${TELEGRAM_RATE_LIMIT_REFILL_TOKENS:30}
+    refill-period: ${TELEGRAM_RATE_LIMIT_REFILL_PERIOD:1s}
+    max-telegram-retries: ${TELEGRAM_MAX_RETRIES:3}
+
+app:
+  security:
+    encryption-key: ${APP_SECRET_ENCRYPTION_KEY}
+  billing:
+    pricing:
+      credits-per-usd: ${BILLING_CREDITS_PER_USD:200000}
+      minimum-charge: ${BILLING_MINIMUM_CHARGE:100}
+      reservation-credits: ${BILLING_RESERVATION_CREDITS:1000}
+    reservations:
+      expiration-poll-ms: ${BILLING_RESERVATION_EXPIRATION_POLL_MS:60000}
+      expiration-batch-size: ${BILLING_RESERVATION_EXPIRATION_BATCH_SIZE:100}
+    publisher:
+      poll-interval-ms: ${BILLING_PUBLISHER_POLL_INTERVAL_MS:250}
+      batch-size: ${BILLING_PUBLISHER_BATCH_SIZE:50}
+      timeout-seconds: ${BILLING_PUBLISHER_TIMEOUT_SECONDS:10}
+      retry-base-delay-ms: ${BILLING_PUBLISHER_RETRY_BASE_DELAY_MS:1000}
+      retry-max-delay-ms: ${BILLING_PUBLISHER_RETRY_MAX_DELAY_MS:60000}
+  vk-config-outbox:
+    poll-interval-ms: ${VK_CONFIG_OUTBOX_POLL_INTERVAL_MS:250}
+    batch-size: ${VK_CONFIG_OUTBOX_BATCH_SIZE:50}
+    publish-timeout-seconds: ${VK_CONFIG_OUTBOX_PUBLISH_TIMEOUT_SECONDS:10}
+    retry-base-delay-ms: ${VK_CONFIG_OUTBOX_RETRY_BASE_DELAY_MS:1000}
+    retry-max-delay-ms: ${VK_CONFIG_OUTBOX_RETRY_MAX_DELAY_MS:60000}
+    retention-days: ${VK_CONFIG_OUTBOX_RETENTION_DAYS:7}
+    cleanup-cron: ${VK_CONFIG_OUTBOX_CLEANUP_CRON:0 15 3 * * *}
+  curator-decision-outbox:
+    poll-interval-ms: ${CURATOR_DECISION_OUTBOX_POLL_INTERVAL_MS:250}
+    batch-size: ${CURATOR_DECISION_OUTBOX_BATCH_SIZE:50}
+    publish-timeout-seconds: ${CURATOR_DECISION_OUTBOX_PUBLISH_TIMEOUT_SECONDS:10}
+    retry-base-delay-ms: ${CURATOR_DECISION_OUTBOX_RETRY_BASE_DELAY_MS:1000}
+    retry-max-delay-ms: ${CURATOR_DECISION_OUTBOX_RETRY_MAX_DELAY_MS:60000}
+    retention-days: ${CURATOR_DECISION_OUTBOX_RETENTION_DAYS:7}
+    cleanup-cron: ${CURATOR_DECISION_OUTBOX_CLEANUP_CRON:0 45 3 * * *}
+  curator-intake-outbox:
+    poll-interval-ms: ${CURATOR_INTAKE_OUTBOX_POLL_INTERVAL_MS:250}
+    batch-size: ${CURATOR_INTAKE_OUTBOX_BATCH_SIZE:50}
+    publish-timeout-seconds: ${CURATOR_INTAKE_OUTBOX_PUBLISH_TIMEOUT_SECONDS:10}
+    retry-base-delay-ms: ${CURATOR_INTAKE_OUTBOX_RETRY_BASE_DELAY_MS:1000}
+    retry-max-delay-ms: ${CURATOR_INTAKE_OUTBOX_RETRY_MAX_DELAY_MS:60000}
+    retention-days: ${CURATOR_INTAKE_OUTBOX_RETENTION_DAYS:7}
+    cleanup-cron: ${CURATOR_INTAKE_OUTBOX_CLEANUP_CRON:0 50 3 * * *}
+  kafka:
+    retry:
+      interval-ms: ${KAFKA_RETRY_INTERVAL_MS:1000}
+      max-attempts: ${KAFKA_RETRY_MAX_ATTEMPTS:3}
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] [requestId=%X{requestId:-}] [kafka=%X{kafkaTopic:-}:%X{kafkaPartition:-}@%X{kafkaOffset:-}] %logger{36} - %msg%n"
+  level:
+    root: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
