@@ -9,6 +9,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import ru.itmo.nemat.orchestrator.config.KafkaDeadLetterProperties;
+import ru.itmo.nemat.orchestrator.dto.CuratorSystemNotificationCommand;
 import ru.itmo.nemat.orchestrator.dto.VkMessageDeliveryResultEvent;
 import ru.itmo.nemat.orchestrator.model.KafkaDeadLetter;
 import ru.itmo.nemat.orchestrator.model.KafkaDeadLetterStatus;
@@ -169,7 +170,13 @@ class KafkaDeadLetterServiceTest {
 
         service.store(record);
 
-        verify(notificationProducer).send(any());
+        ArgumentCaptor<CuratorSystemNotificationCommand> notificationCaptor =
+                ArgumentCaptor.forClass(CuratorSystemNotificationCommand.class);
+        verify(notificationProducer).send(notificationCaptor.capture());
+        assertThat(notificationCaptor.getValue().details())
+                .isEqualTo(
+                        "Kafka не смогла обработать событие billing-charge-commands"
+                );
     }
 
     private ConsumerRecord<String, String> record(
