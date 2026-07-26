@@ -107,6 +107,33 @@ docker compose --env-file .env.prod -f compose.prod.yml \
 
 Access it through an SSH tunnel, never by opening port 8080 publicly.
 
+## Monitoring
+
+Prometheus and Grafana start with the main production stack. Both ports are
+bound to server localhost and must not be opened in the firewall.
+
+Create an SSH tunnel from the operator workstation:
+
+```bash
+ssh -L 3000:127.0.0.1:3000 \
+  -L 9090:127.0.0.1:9090 user@server
+```
+
+Then open:
+
+- Grafana: `http://localhost:3000`
+- Prometheus: `http://localhost:9090`
+
+Grafana provisions the `Curator AI / Production Overview` dashboard
+automatically. It covers service availability, HTTP failures and latency, JVM
+heap, database connection pools, filesystem space, CPU, and error log bursts.
+Prometheus keeps 15 days of metrics by default; change
+`PROMETHEUS_RETENTION` when the server disk budget is known.
+
+The alert rules are evaluated by Prometheus and visible in Grafana. Before
+launch, configure a Grafana contact point or add Alertmanager so critical
+alerts are delivered to an operator instead of only appearing in the UI.
+
 ## Required external checks before launch
 
 - Complete one real Telegram Stars payment and verify idempotent crediting.
@@ -115,3 +142,4 @@ Access it through an SSH tunnel, never by opening port 8080 publicly.
 - Verify automatic VK retry and AI-answer refund behavior.
 - Verify the admin allowlist and manual credit audit.
 - Confirm backup creation and restoration.
+- Trigger a test alert and verify delivery through the configured contact point.

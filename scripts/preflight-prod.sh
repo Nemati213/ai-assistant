@@ -36,6 +36,7 @@ TELEGRAM_ADMIN_BOT_TOKEN
 TELEGRAM_ADMIN_IDS
 OPENROUTER_API_KEY
 APP_SECRET_ENCRYPTION_KEY
+GRAFANA_ADMIN_PASSWORD
 "
 
 for variable in $required_variables; do
@@ -64,6 +65,7 @@ $TG_DB_PASSWORD
 $VK_DB_PASSWORD
 $ORCHESTRATOR_DB_PASSWORD
 $AI_DB_PASSWORD
+$GRAFANA_ADMIN_PASSWORD
 "
 
 password_count="$(printf '%s\n' "$passwords" | sed '/^$/d' | wc -l)"
