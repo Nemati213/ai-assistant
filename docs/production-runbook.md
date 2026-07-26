@@ -109,20 +109,23 @@ Access it through an SSH tunnel, never by opening port 8080 publicly.
 
 ## Monitoring
 
-Prometheus and Grafana start with the main production stack. Both ports are
-bound to server localhost and must not be opened in the firewall.
+Prometheus, Alertmanager, and Grafana start with the main production stack.
+Their ports are bound to server localhost and must not be opened in the
+firewall.
 
 Create an SSH tunnel from the operator workstation:
 
 ```bash
 ssh -L 3000:127.0.0.1:3000 \
-  -L 9090:127.0.0.1:9090 user@server
+  -L 9090:127.0.0.1:9090 \
+  -L 9093:127.0.0.1:9093 user@server
 ```
 
 Then open:
 
 - Grafana: `http://localhost:3000`
 - Prometheus: `http://localhost:9090`
+- Alertmanager: `http://localhost:9093`
 
 Grafana provisions the `Curator AI / Production Overview` dashboard
 automatically. It covers service availability, HTTP failures and latency, JVM
@@ -130,9 +133,50 @@ heap, database connection pools, filesystem space, CPU, and error log bursts.
 Prometheus keeps 15 days of metrics by default; change
 `PROMETHEUS_RETENTION` when the server disk budget is known.
 
-The alert rules are evaluated by Prometheus and visible in Grafana. Before
-launch, configure a Grafana contact point or add Alertmanager so critical
-alerts are delivered to an operator instead of only appearing in the UI.
+### Telegram alert delivery
+
+Create a dedicated bot with Telegram `@BotFather`, add it to a private
+operations chat, and send a message in that chat. Obtain the numeric chat ID
+from the Bot API:
+
+```bash
+read -rsp "Alert bot token: " ALERT_TOKEN
+echo
+curl --silent "https://api.telegram.org/bot${ALERT_TOKEN}/getUpdates"
+unset ALERT_TOKEN
+```
+
+For a group or channel, the chat ID is normally negative. Put the bot token
+and chat ID into `.env.prod`:
+
+```dotenv
+ALERT_TELEGRAM_BOT_TOKEN=replace_me
+ALERT_TELEGRAM_CHAT_ID=replace_me
+```
+
+The production preflight writes these values with owner-only permissions under
+`.secrets/alertmanager`. Compose mounts the files into Alertmanager as runtime
+secrets. The directory is ignored by Git and must never be committed or copied
+into a Docker image.
+
+Critical alerts are grouped for 15 seconds and repeated every 30 minutes while
+the problem remains active. Warnings are grouped for 2 minutes and repeated
+every 4 hours. A warning for a service is suppressed while a critical alert
+for the same service is active. Recovery notifications are enabled.
+
+After deployment, verify both firing and recovery delivery:
+
+```bash
+chmod +x scripts/test-alertmanager.sh
+./scripts/test-alertmanager.sh
+```
+
+If no Telegram message arrives, inspect:
+
+```bash
+docker compose --env-file .env.prod -f compose.prod.yml \
+  logs --tail=100 alertmanager
+```
 
 ## Required external checks before launch
 
