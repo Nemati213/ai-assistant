@@ -1,6 +1,7 @@
 .gradle
 build/
 backups/
+.secrets/
 .env
 .env.*
 !.env.example

@@ -4,6 +4,12 @@ global:
   external_labels:
     environment: production
 
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
 rule_files:
   - /etc/prometheus/alerts.yml
 

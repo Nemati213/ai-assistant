@@ -10,3 +10,13 @@ datasources:
     editable: false
     jsonData:
       timeInterval: 15s
+
+  - name: Alertmanager
+    uid: curator-alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    editable: false
+    jsonData:
+      implementation: prometheus
+      handleGrafanaManagedAlerts: false

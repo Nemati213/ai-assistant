@@ -4,6 +4,11 @@ set -eu
 ENV_FILE="${ENV_FILE:-.env.prod}"
 COMPOSE_FILE="${COMPOSE_FILE:-compose.prod.yml}"
 
+case "$ENV_FILE" in
+  /*) ;;
+  *) ENV_FILE="./$ENV_FILE" ;;
+esac
+
 if [ ! -f "$ENV_FILE" ]; then
   echo "Missing $ENV_FILE. Create it from .env.prod.example." >&2
   exit 1
@@ -37,6 +42,8 @@ TELEGRAM_ADMIN_IDS
 OPENROUTER_API_KEY
 APP_SECRET_ENCRYPTION_KEY
 GRAFANA_ADMIN_PASSWORD
+ALERT_TELEGRAM_BOT_TOKEN
+ALERT_TELEGRAM_CHAT_ID
 "
 
 for variable in $required_variables; do
@@ -55,6 +62,22 @@ done
 
 if [ "$TELEGRAM_BOT_TOKEN" = "$TELEGRAM_ADMIN_BOT_TOKEN" ]; then
   echo "Curator and admin Telegram bots must use different tokens." >&2
+  exit 1
+fi
+
+if ! printf '%s' "$ALERT_TELEGRAM_BOT_TOKEN" \
+  | grep -Eq '^[0-9]+:[A-Za-z0-9_-]{30,}$'; then
+  echo "ALERT_TELEGRAM_BOT_TOKEN has an invalid Telegram bot token format." >&2
+  exit 1
+fi
+
+if ! printf '%s' "$ALERT_TELEGRAM_CHAT_ID" | grep -Eq '^-?[0-9]+$'; then
+  echo "ALERT_TELEGRAM_CHAT_ID must be a numeric Telegram chat ID." >&2
+  exit 1
+fi
+
+if [ "$ALERT_TELEGRAM_CHAT_ID" = "-1001234567890" ]; then
+  echo "ALERT_TELEGRAM_CHAT_ID still contains the example value." >&2
   exit 1
 fi
 
@@ -85,6 +108,14 @@ if ! printf '%s' "$APP_SECRET_ENCRYPTION_KEY" \
   echo "APP_SECRET_ENCRYPTION_KEY must be a Base64-encoded 32-byte key." >&2
   exit 1
 fi
+
+ALERTMANAGER_SECRETS_DIR="${ALERTMANAGER_SECRETS_DIR:-.secrets/alertmanager}"
+umask 077
+mkdir -p "$ALERTMANAGER_SECRETS_DIR"
+printf '%s' "$ALERT_TELEGRAM_BOT_TOKEN" \
+  > "$ALERTMANAGER_SECRETS_DIR/telegram_bot_token"
+printf '%s' "$ALERT_TELEGRAM_CHAT_ID" \
+  > "$ALERTMANAGER_SECRETS_DIR/telegram_chat_id"
 
 docker compose \
   --env-file "$ENV_FILE" \

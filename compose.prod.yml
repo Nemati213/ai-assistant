@@ -242,8 +242,44 @@ services:
       retries: 10
       start_period: 45s
 
+  alertmanager:
+    image: prom/alertmanager:v0.33.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --data.retention=${ALERTMANAGER_RETENTION:-120h}
+      - --web.external-url=http://localhost:${ALERTMANAGER_PORT:-9093}
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - ./infra/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./infra/monitoring/alertmanager/templates:/etc/alertmanager/templates:ro
+      - alertmanager_data:/alertmanager
+    secrets:
+      - alertmanager_telegram_bot_token
+      - alertmanager_telegram_chat_id
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
   prometheus:
-    image: prom/prometheus:v3.13.0
+    image: prom/prometheus:v3.13.1
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -255,6 +291,9 @@ services:
       - ./infra/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./infra/monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
+    depends_on:
+      alertmanager:
+        condition: service_healthy
     networks:
       - backend
     read_only: true
@@ -293,6 +332,8 @@ services:
       - ./infra/monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
     depends_on:
       prometheus:
+        condition: service_healthy
+      alertmanager:
         condition: service_healthy
     networks:
       - backend
@@ -369,3 +410,10 @@ volumes:
   caddy_config:
   prometheus_data:
   grafana_data:
+  alertmanager_data:
+
+secrets:
+  alertmanager_telegram_bot_token:
+    file: ${ALERTMANAGER_SECRETS_DIR:-.secrets/alertmanager}/telegram_bot_token
+  alertmanager_telegram_chat_id:
+    file: ${ALERTMANAGER_SECRETS_DIR:-.secrets/alertmanager}/telegram_chat_id

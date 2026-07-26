@@ -1,0 +1,45 @@
+global:
+  resolve_timeout: 5m
+
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
+route:
+  receiver: telegram-ops
+  group_by:
+    - alertname
+    - application
+    - severity
+  group_wait: 2m
+  group_interval: 10m
+  repeat_interval: 4h
+  routes:
+    - receiver: telegram-ops
+      matchers:
+        - alertname="CuratorNotificationTest"
+      group_wait: 1s
+      group_interval: 5s
+      repeat_interval: 1h
+    - receiver: telegram-ops
+      matchers:
+        - severity="critical"
+      group_wait: 15s
+      group_interval: 2m
+      repeat_interval: 30m
+
+inhibit_rules:
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal:
+      - application
+
+receivers:
+  - name: telegram-ops
+    telegram_configs:
+      - bot_token_file: /run/secrets/alertmanager_telegram_bot_token
+        chat_id_file: /run/secrets/alertmanager_telegram_chat_id
+        send_resolved: true
+        parse_mode: ""
+        message: '{{ template "telegram.curator.message" . }}'

@@ -1,0 +1,14 @@
+{{ define "telegram.curator.message" -}}
+{{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }}: {{ .CommonLabels.alertname }}
+Severity: {{ .CommonLabels.severity }}
+{{ with .CommonLabels.application }}Service: {{ . }}
+{{ end }}Alerts: {{ len .Alerts }}
+{{ range .Alerts -}}
+
+- {{ .Annotations.summary }}
+{{ with .Annotations.description }}  {{ . }}
+{{ end }}  Started: {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+{{ if eq .Status "resolved" }}  Resolved: {{ .EndsAt.Format "2006-01-02 15:04:05 MST" }}
+{{ end -}}
+{{ end -}}
+{{ end }}
