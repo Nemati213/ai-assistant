@@ -22,6 +22,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import ru.itmo.nemat.orchestrator.config.KafkaDeadLetterProperties;
+import ru.itmo.nemat.orchestrator.metrics.KafkaDeadLetterMetrics;
 import ru.itmo.nemat.orchestrator.model.KafkaDeadLetter;
 import ru.itmo.nemat.orchestrator.model.KafkaDeadLetterStatus;
 import ru.itmo.nemat.orchestrator.model.OutboxEvent;
@@ -80,6 +81,8 @@ class OutboxRepositoryConcurrencyIT {
     private JdbcTemplate jdbcTemplate;
     @MockitoBean
     private KafkaTemplate<String, String> kafkaTemplate;
+    @MockitoBean
+    private KafkaDeadLetterMetrics deadLetterMetrics;
 
     private ExecutorService executor;
 
@@ -276,7 +279,8 @@ class OutboxRepositoryConcurrencyIT {
         return new KafkaDeadLetterRetryPublisher(
                 deadLetterRepository,
                 kafkaTemplate,
-                properties
+                properties,
+                deadLetterMetrics
         );
     }
 }

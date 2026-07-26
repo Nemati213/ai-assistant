@@ -8,6 +8,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.itmo.nemat.orchestrator.config.KafkaDeadLetterProperties;
+import ru.itmo.nemat.orchestrator.metrics.KafkaDeadLetterMetrics;
 import ru.itmo.nemat.orchestrator.model.KafkaDeadLetter;
 import ru.itmo.nemat.orchestrator.repository.KafkaDeadLetterRepository;
 
@@ -27,6 +28,7 @@ public class KafkaDeadLetterRetryPublisher {
     private final KafkaDeadLetterRepository repository;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final KafkaDeadLetterProperties properties;
+    private final KafkaDeadLetterMetrics metrics;
 
     @Scheduled(fixedDelayString = "${app.dead-letter.poll-interval-ms:5000}")
     @Transactional
@@ -61,6 +63,7 @@ public class KafkaDeadLetterRetryPublisher {
                     TimeUnit.MILLISECONDS
             );
             deadLetter.markRetried(Instant.now());
+            metrics.recordReplaySuccess();
             log.warn(
                     "Replayed dead letter {} to {}, DLT retry attempt {}",
                     deadLetter.getId(),
@@ -73,6 +76,7 @@ public class KafkaDeadLetterRetryPublisher {
                     normalizeError(exception),
                     Instant.now().plus(delay)
             );
+            metrics.recordReplayFailure();
             log.error(
                     "Failed to replay dead letter {} to {}, retrying publisher in {}",
                     deadLetter.getId(),

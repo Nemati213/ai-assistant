@@ -109,6 +109,7 @@ app:
     refund-timeout: ${WORKFLOW_WATCHDOG_REFUND_TIMEOUT:2m}
   dead-letter:
     poll-interval-ms: ${DLT_POLL_INTERVAL_MS:5000}
+    metrics-refresh-ms: ${DLT_METRICS_REFRESH_MS:15000}
     batch-size: ${DLT_BATCH_SIZE:50}
     max-retry-attempts: ${DLT_MAX_RETRY_ATTEMPTS:3}
     initial-retry-delay: ${DLT_INITIAL_RETRY_DELAY:5s}

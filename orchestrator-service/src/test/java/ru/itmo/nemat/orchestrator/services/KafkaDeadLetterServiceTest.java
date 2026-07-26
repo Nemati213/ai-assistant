@@ -11,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import ru.itmo.nemat.orchestrator.config.KafkaDeadLetterProperties;
 import ru.itmo.nemat.orchestrator.dto.CuratorSystemNotificationCommand;
 import ru.itmo.nemat.orchestrator.dto.VkMessageDeliveryResultEvent;
+import ru.itmo.nemat.orchestrator.metrics.KafkaDeadLetterMetrics;
 import ru.itmo.nemat.orchestrator.model.KafkaDeadLetter;
 import ru.itmo.nemat.orchestrator.model.KafkaDeadLetterStatus;
 import ru.itmo.nemat.orchestrator.model.WorkflowState;
@@ -44,6 +45,8 @@ class KafkaDeadLetterServiceTest {
     private OutboxService outboxService;
     @Mock
     private CuratorSystemNotificationProducer notificationProducer;
+    @Mock
+    private KafkaDeadLetterMetrics metrics;
 
     private KafkaDeadLetterService service;
     private KafkaDeadLetterProperties properties;
@@ -60,7 +63,8 @@ class KafkaDeadLetterServiceTest {
                 outboxService,
                 notificationProducer,
                 properties,
-                new ObjectMapper()
+                new ObjectMapper(),
+                metrics
         );
     }
 
@@ -84,6 +88,7 @@ class KafkaDeadLetterServiceTest {
         assertThat(stored.getRetryAttempt()).isZero();
         assertThat(stored.getStatus()).isEqualTo(KafkaDeadLetterStatus.PENDING);
         assertThat(stored.getNextRetryAt()).isNotNull();
+        verify(metrics).recordReceived(KafkaDeadLetterStatus.PENDING);
         verify(outboxService, never()).enqueue(
                 any(), any(), any(), any(), any()
         );
@@ -106,6 +111,7 @@ class KafkaDeadLetterServiceTest {
         service.store(record);
 
         verify(repository, never()).save(any());
+        verify(metrics).recordDuplicate();
         verify(outboxService, never()).enqueue(
                 any(), any(), any(), any(), any()
         );
@@ -131,6 +137,7 @@ class KafkaDeadLetterServiceTest {
         assertThat(deadLetterCaptor.getValue().getStatus())
                 .isEqualTo(KafkaDeadLetterStatus.EXHAUSTED);
         assertThat(deadLetterCaptor.getValue().getNotifiedAt()).isNotNull();
+        verify(metrics).recordReceived(KafkaDeadLetterStatus.EXHAUSTED);
 
         ArgumentCaptor<Object> payloadCaptor = ArgumentCaptor.forClass(Object.class);
         verify(outboxService).enqueue(

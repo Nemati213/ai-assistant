@@ -4,8 +4,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import ru.itmo.nemat.orchestrator.model.KafkaDeadLetter;
+import ru.itmo.nemat.orchestrator.model.KafkaDeadLetterStatus;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -15,6 +17,17 @@ public interface KafkaDeadLetterRepository extends JpaRepository<KafkaDeadLetter
             String dltTopic,
             int dltPartition,
             long dltOffset
+    );
+
+    long countByStatus(KafkaDeadLetterStatus status);
+
+    @Query("""
+            SELECT MIN(deadLetter.receivedAt)
+            FROM KafkaDeadLetter deadLetter
+            WHERE deadLetter.status IN :statuses
+            """)
+    Instant findOldestReceivedAtByStatusIn(
+            @Param("statuses") Collection<KafkaDeadLetterStatus> statuses
     );
 
     @Query(value = """

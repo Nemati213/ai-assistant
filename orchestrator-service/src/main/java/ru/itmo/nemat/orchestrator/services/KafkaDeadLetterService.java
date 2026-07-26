@@ -12,6 +12,7 @@ import ru.itmo.nemat.orchestrator.config.KafkaDeadLetterProperties;
 import ru.itmo.nemat.orchestrator.dto.CuratorSystemNotificationCommand;
 import ru.itmo.nemat.orchestrator.dto.SendVkMessageCommand;
 import ru.itmo.nemat.orchestrator.dto.VkMessageDeliveryResultEvent;
+import ru.itmo.nemat.orchestrator.metrics.KafkaDeadLetterMetrics;
 import ru.itmo.nemat.orchestrator.model.KafkaDeadLetter;
 import ru.itmo.nemat.orchestrator.model.KafkaDeadLetterStatus;
 import ru.itmo.nemat.orchestrator.model.WorkflowState;
@@ -39,6 +40,7 @@ public class KafkaDeadLetterService {
     private final CuratorSystemNotificationProducer notificationProducer;
     private final KafkaDeadLetterProperties properties;
     private final ObjectMapper objectMapper;
+    private final KafkaDeadLetterMetrics metrics;
 
     @Transactional
     public void store(ConsumerRecord<String, String> record) {
@@ -47,6 +49,7 @@ public class KafkaDeadLetterService {
                 record.partition(),
                 record.offset()
         )) {
+            metrics.recordDuplicate();
             return;
         }
 
@@ -81,6 +84,7 @@ public class KafkaDeadLetterService {
         if (exhausted) {
             finalizeExhausted(deadLetter);
         }
+        metrics.recordReceived(deadLetter.getStatus());
         log.error(
                 "Stored Kafka dead letter from {} at retry attempt {}, status {}",
                 deadLetter.getOriginalTopic(),

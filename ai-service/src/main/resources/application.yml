@@ -97,5 +97,7 @@ management:
     distribution:
       percentiles-histogram:
         http.server.requests: true
+        curator.openrouter.request.duration: true
       slo:
         http.server.requests: 100ms,250ms,500ms,1s,2s,5s
+        curator.openrouter.request.duration: 1s,5s,15s,30s,60s,90s

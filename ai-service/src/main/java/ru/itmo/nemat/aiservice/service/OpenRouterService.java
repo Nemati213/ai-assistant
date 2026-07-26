@@ -1,5 +1,6 @@
 package ru.itmo.nemat.aiservice.service;
 
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -14,6 +15,7 @@ import ru.itmo.nemat.aiservice.dto.openrouter.ImageUrl;
 import ru.itmo.nemat.aiservice.dto.openrouter.OpenRouterRequest;
 import ru.itmo.nemat.aiservice.dto.openrouter.OpenRouterResponse;
 import ru.itmo.nemat.aiservice.dto.openrouter.Usage;
+import ru.itmo.nemat.aiservice.metrics.OpenRouterMetrics;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -26,11 +28,13 @@ public class OpenRouterService {
 
     private final RestClient openRouterRestClient;
     private final OpenRouterProperties properties;
+    private final OpenRouterMetrics metrics;
 
     public AiGenerationResult generate(
             AiGenerationCommand command,
             List<ConversationMessage> history
     ) {
+        Timer.Sample sample = metrics.start();
         try {
             String promptText = command.systemPrompt() != null && !command.systemPrompt().isBlank()
                     ? command.systemPrompt()
@@ -106,12 +110,15 @@ public class OpenRouterService {
                     providerCostUsd
             );
 
-            return new AiGenerationResult(
+            AiGenerationResult result = new AiGenerationResult(
                     response.choices().get(0).message().content(),
                     tokensUsed,
                     providerCostUsd
             );
+            metrics.recordSuccess(sample);
+            return result;
         } catch (Exception exception) {
+            metrics.recordFailure(sample, exception);
             log.error("[{}] OpenRouter generation failed", command.requestId(), exception);
             throw new IllegalStateException("OpenRouter generation failed", exception);
         }

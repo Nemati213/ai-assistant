@@ -9,6 +9,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.kafka.core.KafkaTemplate;
 import ru.itmo.nemat.orchestrator.config.KafkaDeadLetterProperties;
+import ru.itmo.nemat.orchestrator.metrics.KafkaDeadLetterMetrics;
 import ru.itmo.nemat.orchestrator.model.KafkaDeadLetter;
 import ru.itmo.nemat.orchestrator.model.KafkaDeadLetterStatus;
 import ru.itmo.nemat.orchestrator.repository.KafkaDeadLetterRepository;
@@ -34,6 +35,8 @@ class KafkaDeadLetterRetryPublisherTest {
     private KafkaDeadLetterRepository repository;
     @Mock
     private KafkaTemplate<String, String> kafkaTemplate;
+    @Mock
+    private KafkaDeadLetterMetrics metrics;
 
     private KafkaDeadLetterRetryPublisher publisher;
 
@@ -47,7 +50,8 @@ class KafkaDeadLetterRetryPublisherTest {
         publisher = new KafkaDeadLetterRetryPublisher(
                 repository,
                 kafkaTemplate,
-                properties
+                properties,
+                metrics
         );
     }
 
@@ -73,6 +77,7 @@ class KafkaDeadLetterRetryPublisherTest {
         assertThat(header(record, KafkaDeadLetterService.RETRY_ATTEMPT_HEADER))
                 .isEqualTo("2");
         assertThat(deadLetter.getStatus()).isEqualTo(KafkaDeadLetterStatus.RETRIED);
+        verify(metrics).recordReplaySuccess();
     }
 
     @Test
@@ -91,6 +96,7 @@ class KafkaDeadLetterRetryPublisherTest {
                 .isEqualTo(KafkaDeadLetterStatus.PUBLISH_FAILED);
         assertThat(deadLetter.getLastRetryError()).contains("Kafka unavailable");
         assertThat(deadLetter.getNextRetryAt()).isNotNull();
+        verify(metrics).recordReplayFailure();
     }
 
     private KafkaDeadLetter deadLetter() {

@@ -16,4 +16,5 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-json'
 
     testImplementation 'org.springframework.kafka:spring-kafka-test'
+    testImplementation 'io.micrometer:micrometer-registry-prometheus'
 }

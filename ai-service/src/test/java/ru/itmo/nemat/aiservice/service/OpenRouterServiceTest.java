@@ -1,5 +1,7 @@
 package ru.itmo.nemat.aiservice.service;
 
+import io.micrometer.prometheusmetrics.PrometheusConfig;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -9,16 +11,19 @@ import ru.itmo.nemat.aiservice.config.OpenRouterProperties;
 import ru.itmo.nemat.aiservice.dto.AiGenerationCommand;
 import ru.itmo.nemat.aiservice.dto.AiGenerationResult;
 import ru.itmo.nemat.aiservice.dto.ConversationMessage;
+import ru.itmo.nemat.aiservice.metrics.OpenRouterMetrics;
 
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 
 class OpenRouterServiceTest {
 
@@ -27,11 +32,14 @@ class OpenRouterServiceTest {
         RestClient.Builder builder = RestClient.builder()
                 .baseUrl("https://openrouter.test/api/v1/chat/completions");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        PrometheusMeterRegistry meterRegistry =
+                new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
         OpenRouterProperties properties = new OpenRouterProperties();
         properties.setModel("openai/gpt-4o-mini");
         OpenRouterService service = new OpenRouterService(
                 builder.build(),
-                properties
+                properties,
+                new OpenRouterMetrics(meterRegistry)
         );
 
         server.expect(requestTo("https://openrouter.test/api/v1/chat/completions"))
@@ -110,5 +118,56 @@ class OpenRouterServiceTest {
         assertThat(result.tokensUsed()).isEqualTo(500);
         assertThat(result.providerCostUsd())
                 .isEqualByComparingTo(new BigDecimal("0.005"));
+        assertThat(meterRegistry.get("curator.openrouter.requests")
+                .tags("outcome", "success", "failure", "none")
+                .counter()
+                .count()).isEqualTo(1);
+        assertThat(meterRegistry.get("curator.openrouter.request.duration")
+                .tags("outcome", "success", "failure", "none")
+                .timer()
+                .count()).isEqualTo(1);
+        assertThat(meterRegistry.scrape())
+                .contains("curator_openrouter_requests_total")
+                .contains("curator_openrouter_request_duration_seconds_count");
+    }
+
+    @Test
+    void recordsProviderFailureMetrics() {
+        RestClient.Builder builder = RestClient.builder()
+                .baseUrl("https://openrouter.test/api/v1/chat/completions");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        PrometheusMeterRegistry meterRegistry =
+                new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+        OpenRouterProperties properties = new OpenRouterProperties();
+        properties.setModel("openai/gpt-4o-mini");
+        OpenRouterService service = new OpenRouterService(
+                builder.build(),
+                properties,
+                new OpenRouterMetrics(meterRegistry)
+        );
+        server.expect(requestTo("https://openrouter.test/api/v1/chat/completions"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> service.generate(new AiGenerationCommand(
+                UUID.randomUUID(),
+                "200",
+                "300",
+                "100",
+                "Solve this",
+                List.of(),
+                "Explain clearly"
+        ), List.of()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("OpenRouter generation failed");
+
+        server.verify();
+        assertThat(meterRegistry.get("curator.openrouter.requests")
+                .tags("outcome", "failure", "failure", "http_5xx")
+                .counter()
+                .count()).isEqualTo(1);
+        assertThat(meterRegistry.get("curator.openrouter.request.duration")
+                .tags("outcome", "failure", "failure", "http_5xx")
+                .timer()
+                .count()).isEqualTo(1);
     }
 }
