@@ -42,8 +42,6 @@ TELEGRAM_ADMIN_IDS
 OPENROUTER_API_KEY
 APP_SECRET_ENCRYPTION_KEY
 GRAFANA_ADMIN_PASSWORD
-ALERT_TELEGRAM_BOT_TOKEN
-ALERT_TELEGRAM_CHAT_ID
 "
 
 for variable in $required_variables; do
@@ -65,14 +63,17 @@ if [ "$TELEGRAM_BOT_TOKEN" = "$TELEGRAM_ADMIN_BOT_TOKEN" ]; then
   exit 1
 fi
 
-if ! printf '%s' "$ALERT_TELEGRAM_BOT_TOKEN" \
+if ! printf '%s' "$TELEGRAM_ADMIN_BOT_TOKEN" \
   | grep -Eq '^[0-9]+:[A-Za-z0-9_-]{30,}$'; then
-  echo "ALERT_TELEGRAM_BOT_TOKEN has an invalid Telegram bot token format." >&2
+  echo "TELEGRAM_ADMIN_BOT_TOKEN has an invalid Telegram bot token format." >&2
   exit 1
 fi
 
+ALERT_TELEGRAM_CHAT_ID="${ALERT_TELEGRAM_CHAT_ID:-$TELEGRAM_ADMIN_IDS}"
+
 if ! printf '%s' "$ALERT_TELEGRAM_CHAT_ID" | grep -Eq '^-?[0-9]+$'; then
-  echo "ALERT_TELEGRAM_CHAT_ID must be a numeric Telegram chat ID." >&2
+  echo "ALERT_TELEGRAM_CHAT_ID must be one numeric Telegram chat ID." >&2
+  echo "Set it explicitly when TELEGRAM_ADMIN_IDS contains multiple IDs." >&2
   exit 1
 fi
 
@@ -112,7 +113,7 @@ fi
 ALERTMANAGER_SECRETS_DIR="${ALERTMANAGER_SECRETS_DIR:-.secrets/alertmanager}"
 umask 077
 mkdir -p "$ALERTMANAGER_SECRETS_DIR"
-printf '%s' "$ALERT_TELEGRAM_BOT_TOKEN" \
+printf '%s' "$TELEGRAM_ADMIN_BOT_TOKEN" \
   > "$ALERTMANAGER_SECRETS_DIR/telegram_bot_token"
 printf '%s' "$ALERT_TELEGRAM_CHAT_ID" \
   > "$ALERTMANAGER_SECRETS_DIR/telegram_chat_id"

@@ -135,29 +135,22 @@ Prometheus keeps 15 days of metrics by default; change
 
 ### Telegram alert delivery
 
-Create a dedicated bot with Telegram `@BotFather`, add it to a private
-operations chat, and send a message in that chat. Obtain the numeric chat ID
-from the Bot API:
+Alertmanager reuses `TELEGRAM_ADMIN_BOT_TOKEN`; no additional Telegram bot is
+required. By default, notifications are sent to the single numeric value from
+`TELEGRAM_ADMIN_IDS`.
 
-```bash
-read -rsp "Alert bot token: " ALERT_TOKEN
-echo
-curl --silent "https://api.telegram.org/bot${ALERT_TOKEN}/getUpdates"
-unset ALERT_TOKEN
-```
-
-For a group or channel, the chat ID is normally negative. Put the bot token
-and chat ID into `.env.prod`:
+When `TELEGRAM_ADMIN_IDS` contains multiple administrators, or notifications
+should go to a private operations group, set one explicit destination in
+`.env.prod`:
 
 ```dotenv
-ALERT_TELEGRAM_BOT_TOKEN=replace_me
-ALERT_TELEGRAM_CHAT_ID=replace_me
+ALERT_TELEGRAM_CHAT_ID=-1001234567890
 ```
 
-The production preflight writes these values with owner-only permissions under
-`.secrets/alertmanager`. Compose mounts the files into Alertmanager as runtime
-secrets. The directory is ignored by Git and must never be committed or copied
-into a Docker image.
+The production preflight writes the existing admin bot token and selected chat
+ID with owner-only permissions under `.secrets/alertmanager`. Compose mounts
+the files into Alertmanager as runtime secrets. The directory is ignored by
+Git and must never be committed or copied into a Docker image.
 
 Critical alerts are grouped for 15 seconds and repeated every 30 minutes while
 the problem remains active. Warnings are grouped for 2 minutes and repeated
