@@ -67,8 +67,42 @@ jobs:
       - name: Validate Grafana dashboard JSON
         run: jq empty infra/monitoring/grafana/dashboards/production-overview.json
 
+      - name: Validate k6 load scenario
+        run: >-
+          docker run --rm
+          -v "$PWD/load-tests:/scripts:ro"
+          grafana/k6:2.0.0
+          inspect /scripts/vk-webhook.js
+
       - name: Validate production shell scripts
-        run: sh -n scripts/preflight-prod.sh scripts/secret-scan.sh scripts/test-alertmanager.sh
+        run: >-
+          sh -n
+          scripts/preflight-prod.sh
+          scripts/secret-scan.sh
+          scripts/test-alertmanager.sh
+          scripts/backup-postgres.sh
+          scripts/restore-postgres.sh
+          scripts/drill-postgres-restore.sh
+          scripts/test-postgres-backup-restore.sh
+          scripts/run-load-test.sh
+          scripts/lib/postgres-backup-common.sh
+
+      - name: Analyze production shell scripts
+        run: >-
+          docker run --rm
+          --workdir /mnt
+          -v "$PWD:/mnt:ro"
+          koalaman/shellcheck:v0.11.0
+          --exclude=SC1091,SC2016
+          scripts/backup-postgres.sh
+          scripts/restore-postgres.sh
+          scripts/drill-postgres-restore.sh
+          scripts/test-postgres-backup-restore.sh
+          scripts/run-load-test.sh
+          scripts/lib/postgres-backup-common.sh
+
+      - name: Exercise PostgreSQL backup and restore
+        run: sh scripts/test-postgres-backup-restore.sh
 
       - name: Scan tracked files for obvious secrets
         run: sh ./scripts/secret-scan.sh

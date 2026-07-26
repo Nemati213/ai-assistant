@@ -77,17 +77,51 @@ applied migration; add a new versioned migration.
 
 ## Backups
 
-Create a PostgreSQL backup:
+Create an atomic PostgreSQL backup bundle:
 
 ```bash
 chmod +x scripts/backup-postgres.sh
 ./scripts/backup-postgres.sh
 ```
 
-Schedule it daily with cron and copy backups to storage outside the server.
-The default local retention is 14 days.
+The bundle contains one compressed custom-format dump for each service
+database, a manifest, internal SHA-256 checksums, and an archive checksum.
+Files are created with owner-only permissions. The script validates every dump
+with `pg_restore --list` before publishing the archive.
 
-Test restoration on a separate environment before accepting real payments.
+Schedule the command daily with cron and copy both the `.tar` archive and its
+`.tar.sha256` file to encrypted storage outside the server. The default local
+retention is 14 days. A backup remaining only on the application server is not
+a disaster-recovery copy.
+
+Exercise restoration in an isolated, temporary PostgreSQL container:
+
+```bash
+chmod +x scripts/drill-postgres-restore.sh
+./scripts/drill-postgres-restore.sh backups/postgres-TIMESTAMP.tar
+```
+
+The drill does not publish a port and does not touch the production Compose
+project. It verifies both checksum layers, restores all four databases with
+`pg_restore --single-transaction`, and compares restored table counts with the
+backup manifest.
+
+For an actual restore, stop all application services while leaving PostgreSQL
+running:
+
+```bash
+docker compose --env-file .env.prod -f compose.prod.yml stop \
+  vk-connector-service tg-connector-service orchestrator-service ai-service
+
+RESTORE_CONFIRM=replace-all-service-databases \
+  ./scripts/restore-postgres.sh backups/postgres-TIMESTAMP.tar
+```
+
+Start the services again and verify every readiness probe and critical business
+flow before reopening traffic. Record backup age and restore duration during
+each drill. This logical backup provides per-database consistency, not
+cross-database point-in-time recovery; WAL archiving and off-host object
+storage remain required for a stricter RPO.
 
 ## Operations
 
@@ -106,6 +140,14 @@ docker compose --env-file .env.prod -f compose.prod.yml \
 ```
 
 Access it through an SSH tunnel, never by opening port 8080 publicly.
+
+## Load testing
+
+The reproducible k6 scenario and safety guardrails are documented in
+[load testing](load-testing.md). The runner refuses to start without an
+explicit non-production confirmation. Establish a read-path baseline first,
+then test durable webhook acceptance in an isolated staging stack while
+watching Grafana, Kafka lag, DLT, and PostgreSQL pool saturation.
 
 ## Monitoring
 
