@@ -43,5 +43,16 @@ jobs:
       - name: Validate Compose production file
         run: docker compose --env-file .env.prod.example -f compose.prod.yml config --quiet
 
+      - name: Validate Prometheus configuration
+        run: >-
+          docker run --rm
+          --entrypoint /bin/promtool
+          -v "$PWD/infra/monitoring/prometheus:/etc/prometheus:ro"
+          prom/prometheus:v3.13.0
+          check config /etc/prometheus/prometheus.yml
+
+      - name: Validate Grafana dashboard JSON
+        run: jq empty infra/monitoring/grafana/dashboards/production-overview.json
+
       - name: Scan tracked files for obvious secrets
         run: sh ./scripts/secret-scan.sh
