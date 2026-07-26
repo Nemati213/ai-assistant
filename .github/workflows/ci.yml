@@ -48,11 +48,27 @@ jobs:
           docker run --rm
           --entrypoint /bin/promtool
           -v "$PWD/infra/monitoring/prometheus:/etc/prometheus:ro"
-          prom/prometheus:v3.13.0
+          prom/prometheus:v3.13.1
           check config /etc/prometheus/prometheus.yml
+
+      - name: Validate Alertmanager configuration
+        run: |
+          mkdir -p .secrets/alertmanager
+          printf '%s' 'replace_me' > .secrets/alertmanager/telegram_bot_token
+          printf '%s' '-1001234567890' > .secrets/alertmanager/telegram_chat_id
+          docker compose \
+            --env-file .env.prod.example \
+            -f compose.prod.yml \
+            run --rm --no-deps \
+            --entrypoint /bin/amtool \
+            alertmanager \
+            check-config /etc/alertmanager/alertmanager.yml
 
       - name: Validate Grafana dashboard JSON
         run: jq empty infra/monitoring/grafana/dashboards/production-overview.json
+
+      - name: Validate production shell scripts
+        run: sh -n scripts/preflight-prod.sh scripts/secret-scan.sh scripts/test-alertmanager.sh
 
       - name: Scan tracked files for obvious secrets
         run: sh ./scripts/secret-scan.sh
