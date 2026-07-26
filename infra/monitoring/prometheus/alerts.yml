@@ -120,3 +120,141 @@ groups:
         annotations:
           summary: "{{ $labels.application }} emits many error logs"
           description: "More than 20 error log events were emitted during a 10 minute window."
+
+  - name: curator-message-processing
+    rules:
+      - alert: CuratorKafkaDltBacklog
+        expr: |
+          sum by (application) (
+            curator_kafka_dlt_records{
+              job="spring-services"
+            }
+          ) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.application }} has an active dead letter backlog"
+          description: "Dead letters have remained pending or failed to replay for 10 minutes."
+
+      - alert: CuratorKafkaDltRecordStale
+        expr: |
+          curator_kafka_dlt_oldest_age_seconds{
+            job="spring-services"
+          } > 900
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.application }} has a stale dead letter"
+          description: "The oldest active dead letter has been waiting for more than 15 minutes."
+
+      - alert: CuratorKafkaDltExhausted
+        expr: |
+          increase(curator_kafka_dlt_received_total{
+            job="spring-services",
+            status="exhausted"
+          }[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.application }} exhausted Kafka recovery"
+          description: "At least one message exhausted all Kafka and DLT retry attempts in the last 10 minutes."
+
+      - alert: CuratorKafkaDltReplayFailures
+        expr: |
+          increase(curator_kafka_dlt_replays_total{
+            job="spring-services",
+            outcome="failure"
+          }[10m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.application }} cannot replay dead letters"
+          description: "More than three DLT replay attempts failed during a 10 minute window."
+
+      - alert: CuratorKafkaConsumerLagHigh
+        expr: |
+          max by (application, spring_id) (
+            kafka_consumer_fetch_manager_records_lag_max{
+              job="spring-services"
+            }
+          ) > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.application }} Kafka consumer is falling behind"
+          description: "Consumer {{ $labels.spring_id }} has lagged by more than 100 records for 10 minutes."
+
+      - alert: CuratorKafkaConsumerLagCritical
+        expr: |
+          max by (application, spring_id) (
+            kafka_consumer_fetch_manager_records_lag_max{
+              job="spring-services"
+            }
+          ) > 1000
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.application }} Kafka consumer lag is critical"
+          description: "Consumer {{ $labels.spring_id }} has lagged by more than 1000 records for 5 minutes."
+
+  - name: curator-external-providers
+    rules:
+      - alert: CuratorOpenRouterFailureRateHigh
+        expr: |
+          (
+            sum by (application) (
+              rate(curator_openrouter_requests_total{
+                job="spring-services",
+                outcome="failure"
+              }[10m])
+            )
+            /
+            clamp_min(
+              sum by (application) (
+                rate(curator_openrouter_requests_total{
+                  job="spring-services"
+                }[10m])
+              ),
+              0.001
+            )
+          ) > 0.20
+          and on (application)
+          sum by (application) (
+            increase(curator_openrouter_requests_total{
+              job="spring-services"
+            }[10m])
+          ) >= 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.application }} has a high OpenRouter failure rate"
+          description: "More than 20% of OpenRouter requests have failed for 5 minutes."
+
+      - alert: CuratorOpenRouterLatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (application, le) (
+              rate(curator_openrouter_request_duration_seconds_bucket{
+                job="spring-services"
+              }[10m])
+            )
+          ) > 60
+          and on (application)
+          sum by (application) (
+            increase(curator_openrouter_requests_total{
+              job="spring-services"
+            }[10m])
+          ) >= 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.application }} OpenRouter latency is high"
+          description: "OpenRouter p95 latency has exceeded 60 seconds for 10 minutes."
