@@ -2,77 +2,78 @@
 set -eu
 
 SCRIPT_DIR="$(unset CDPATH; cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(unset CDPATH; cd -- "$SCRIPT_DIR/.." && pwd)"
 . "$SCRIPT_DIR/lib/postgres-backup-common.sh"
 
-COMPOSE_FILE="${COMPOSE_FILE:-compose.prod.yml}"
 ENV_FILE="${ENV_FILE:-.env.prod}"
-POSTGRES_SERVICE="${POSTGRES_SERVICE:-postgres}"
-EXPECTED_CONFIRMATION="replace-all-service-databases"
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:17.10-alpine3.23}"
+DRILL_CONTAINER_NAME="${DRILL_CONTAINER_NAME:-curator-postgres-restore-drill-$$}"
+KEEP_DRILL_CONTAINER="${KEEP_DRILL_CONTAINER:-0}"
+WAIT_ATTEMPTS="${WAIT_ATTEMPTS:-60}"
 
 if [ "$#" -ne 1 ]; then
-  echo "Usage: RESTORE_CONFIRM=$EXPECTED_CONFIRMATION $0 backups/postgres-TIMESTAMP.tar" >&2
+  echo "Usage: $0 backups/postgres-TIMESTAMP.tar" >&2
   exit 1
 fi
 
 BACKUP_FILE="$1"
 
-if [ "${RESTORE_CONFIRM:-}" != "$EXPECTED_CONFIRMATION" ]; then
-  echo "Restore replaces data in all four service databases." >&2
-  echo "Set RESTORE_CONFIRM=$EXPECTED_CONFIRMATION to continue." >&2
-  exit 1
-fi
-
 require_command docker
 require_command sha256sum
 require_command tar
-
-if [ ! -f "$COMPOSE_FILE" ]; then
-  echo "Compose file not found: $COMPOSE_FILE" >&2
-  exit 1
-fi
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "Environment file not found: $ENV_FILE" >&2
   exit 1
 fi
 
+case "$WAIT_ATTEMPTS" in
+  ''|*[!0-9]*|0)
+    echo "WAIT_ATTEMPTS must be a positive integer." >&2
+    exit 1
+    ;;
+esac
+
 WORK_DIR="$(mktemp -d)"
+container_started=0
+
 cleanup() {
   rm -rf "$WORK_DIR"
+  if [ "$container_started" -eq 1 ] && [ "$KEEP_DRILL_CONTAINER" != "1" ]; then
+    docker rm --force "$DRILL_CONTAINER_NAME" > /dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT HUP INT TERM
 
 verify_backup_archive "$BACKUP_FILE" "$WORK_DIR"
 
-compose() {
-  docker compose \
-    --env-file "$ENV_FILE" \
-    -f "$COMPOSE_FILE" \
-    "$@"
-}
+docker run \
+  --detach \
+  --name "$DRILL_CONTAINER_NAME" \
+  --env-file "$ENV_FILE" \
+  --mount "type=bind,source=$REPO_ROOT/infra/postgres/init,target=/docker-entrypoint-initdb.d,readonly" \
+  --security-opt no-new-privileges:true \
+  "$POSTGRES_IMAGE" > /dev/null
+container_started=1
 
-running_services="$(compose ps --services --status running)"
-if ! printf '%s\n' "$running_services" | grep -qx "$POSTGRES_SERVICE"; then
-  echo "PostgreSQL service is not running: $POSTGRES_SERVICE" >&2
-  exit 1
-fi
-
-for service in \
-  tg-connector-service \
-  vk-connector-service \
-  orchestrator-service \
-  ai-service
+attempt=1
+until docker exec "$DRILL_CONTAINER_NAME" \
+  sh -c 'pg_isready --username "$POSTGRES_USER" --dbname "$POSTGRES_DB"' \
+  > /dev/null 2>&1
 do
-  if printf '%s\n' "$running_services" | grep -qx "$service"; then
-    echo "Application service must be stopped before restore: $service" >&2
+  if [ "$attempt" -ge "$WAIT_ATTEMPTS" ]; then
+    echo "Restore drill PostgreSQL did not become ready." >&2
+    docker logs "$DRILL_CONTAINER_NAME" >&2
     exit 1
   fi
+  attempt="$((attempt + 1))"
+  sleep 2
 done
 
 started_at="$(date +%s)"
 for database in $POSTGRES_DATABASES; do
-  echo "Restoring $database."
-  compose exec -T "$POSTGRES_SERVICE" \
+  echo "Drill restoring $database."
+  docker exec -i "$DRILL_CONTAINER_NAME" \
     sh -c '
       case "$1" in
         tg_connector_db) restore_user="$TG_DB_USERNAME" ;;
@@ -92,7 +93,7 @@ for database in $POSTGRES_DATABASES; do
     ' sh "$database" < "$WORK_DIR/$database.dump"
 
   table_count="$(
-    compose exec -T "$POSTGRES_SERVICE" \
+    docker exec "$DRILL_CONTAINER_NAME" \
       sh -c '
         psql \
           --username "$POSTGRES_USER" \
@@ -119,5 +120,8 @@ for database in $POSTGRES_DATABASES; do
 done
 
 duration="$(( $(date +%s) - started_at ))"
-echo "Restore completed and verified in ${duration}s."
-echo "Start application services and verify readiness before accepting traffic."
+echo "Restore drill passed in ${duration}s using $DRILL_CONTAINER_NAME."
+
+if [ "$KEEP_DRILL_CONTAINER" = "1" ]; then
+  echo "Restore drill container was kept for additional verification."
+fi
