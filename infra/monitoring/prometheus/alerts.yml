@@ -1,0 +1,122 @@
+groups:
+  - name: curator-service-health
+    rules:
+      - alert: CuratorServiceDown
+        expr: up{job="spring-services"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.application }} is unavailable"
+          description: "Prometheus cannot scrape {{ $labels.instance }} for more than 2 minutes."
+
+      - alert: CuratorHighHttpErrorRate
+        expr: |
+          (
+            sum by (application) (
+              rate(http_server_requests_seconds_count{
+                job="spring-services",
+                status=~"5.."
+              }[5m])
+            )
+            /
+            clamp_min(
+              sum by (application) (
+                rate(http_server_requests_seconds_count{
+                  job="spring-services"
+                }[5m])
+              ),
+              0.001
+            )
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.application }} has a high HTTP 5xx rate"
+          description: "More than 5% of HTTP requests have failed for 5 minutes."
+
+      - alert: CuratorHighHttpLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (application, le) (
+              rate(http_server_requests_seconds_bucket{
+                job="spring-services"
+              }[5m])
+            )
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.application }} p95 latency is high"
+          description: "HTTP p95 latency has exceeded 2 seconds for 10 minutes."
+
+  - name: curator-resource-health
+    rules:
+      - alert: CuratorJvmHeapPressure
+        expr: |
+          (
+            sum by (application) (
+              jvm_memory_used_bytes{
+                job="spring-services",
+                area="heap"
+              }
+            )
+            /
+            clamp_min(
+              sum by (application) (
+                jvm_memory_max_bytes{
+                  job="spring-services",
+                  area="heap"
+                }
+              ),
+              1
+            )
+          ) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.application }} JVM heap pressure"
+          description: "Heap usage has remained above 85% for 10 minutes."
+
+      - alert: CuratorDatabasePoolSaturation
+        expr: |
+          hikaricp_connections_pending{
+            job="spring-services"
+          } > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.application }} waits for database connections"
+          description: "The Hikari pool has pending connection requests for more than 2 minutes."
+
+      - alert: CuratorContainerDiskLow
+        expr: |
+          (
+            disk_free_bytes{job="spring-services"}
+            /
+            clamp_min(disk_total_bytes{job="spring-services"}, 1)
+          ) < 0.15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.application }} has low filesystem space"
+          description: "Free filesystem space has remained below 15% for 10 minutes."
+
+      - alert: CuratorErrorLogBurst
+        expr: |
+          increase(logback_events_total{
+            job="spring-services",
+            level="error"
+          }[10m]) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.application }} emits many error logs"
+          description: "More than 20 error log events were emitted during a 10 minute window."
