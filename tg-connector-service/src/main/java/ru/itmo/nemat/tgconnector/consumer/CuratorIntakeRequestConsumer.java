@@ -3,12 +3,18 @@ package ru.itmo.nemat.tgconnector.consumer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import ru.itmo.nemat.tgconnector.bot.CuratorTelegramBot;
 import ru.itmo.nemat.tgconnector.dto.CuratorIntakeRequest;
 
 @Component
+@ConditionalOnProperty(
+        name = "curator.workflow.mode",
+        havingValue = "telegram",
+        matchIfMissing = true
+)
 @Slf4j
 @RequiredArgsConstructor
 public class CuratorIntakeRequestConsumer {

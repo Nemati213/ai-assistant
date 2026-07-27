@@ -30,6 +30,7 @@ public class VkApiService {
     public VkApiService(
             VkGroupCredentialsRepository repository,
             @Value("${vk.callback.url}") String callbackUrl,
+            @Value("${vk.api-url:https://api.vk.com/method}") String apiUrl,
             @Value("${vk.api-version:5.199}") String apiVersion,
             @Value("${vk.http.connect-timeout:10s}") Duration connectTimeout,
             @Value("${vk.http.read-timeout:30s}") Duration readTimeout) {
@@ -43,7 +44,7 @@ public class VkApiService {
                 new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(readTimeout);
         this.restClient = RestClient.builder()
-                .baseUrl("https://api.vk.com/method")
+                .baseUrl(apiUrl)
                 .requestFactory(requestFactory)
                 .build();
     }

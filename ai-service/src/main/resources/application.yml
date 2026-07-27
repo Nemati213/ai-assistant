@@ -44,7 +44,7 @@ spring:
       acks: all
 
 openrouter:
-  url: https://openrouter.ai/api/v1/chat/completions
+  url: ${OPENROUTER_URL:https://openrouter.ai/api/v1/chat/completions}
   api-key: ${OPENROUTER_API_KEY}
   model: ${OPENROUTER_MODEL:openai/gpt-5.4-mini}
   connect-timeout: ${OPENROUTER_CONNECT_TIMEOUT:10s}

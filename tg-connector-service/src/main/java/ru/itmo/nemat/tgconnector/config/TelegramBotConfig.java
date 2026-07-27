@@ -3,6 +3,7 @@ package ru.itmo.nemat.tgconnector.config;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Condition;
 import org.springframework.context.annotation.ConditionContext;
 import org.springframework.context.annotation.Bean;
@@ -33,6 +34,11 @@ public class TelegramBotConfig {
     }
 
     @Bean
+    @ConditionalOnProperty(
+            name = "telegram.polling-enabled",
+            havingValue = "true",
+            matchIfMissing = true
+    )
     public TelegramBotsApi telegramBotsApi(
             CuratorTelegramBot curatorBot,
             ObjectProvider<AdminTelegramBot> adminBotProvider,

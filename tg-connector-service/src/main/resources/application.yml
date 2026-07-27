@@ -40,6 +40,7 @@ spring:
       auto-offset-reset: earliest
 
 telegram:
+  polling-enabled: ${TELEGRAMBOTS_ENABLED:true}
   bot-name: ${TELEGRAM_BOT_NAME}
   bot-token: ${TELEGRAM_BOT_TOKEN}
   admin:
