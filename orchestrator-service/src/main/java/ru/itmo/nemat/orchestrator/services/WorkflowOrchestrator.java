@@ -454,8 +454,16 @@ public class WorkflowOrchestrator {
 
     @Transactional
     public void handleVkDeliveryResult(VkMessageDeliveryResultEvent event) {
-        WorkflowState state = workflowStateRepository.findByIdForUpdate(event.requestId())
-                .orElseThrow(() -> new IllegalArgumentException("Not found"));
+        WorkflowState state = workflowStateRepository
+                .findByIdForUpdate(event.requestId())
+                .orElse(null);
+        if (state == null) {
+            log.debug(
+                    "[{}] VK delivery result belongs to a non-workflow message",
+                    event.requestId()
+            );
+            return;
+        }
 
         if (state.getStatus() != WorkflowStatus.SENDING_TO_STUDENT) {
             log.info(

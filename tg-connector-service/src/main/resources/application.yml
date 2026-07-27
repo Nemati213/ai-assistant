@@ -102,6 +102,17 @@ app:
     retry-max-delay-ms: ${CURATOR_INTAKE_OUTBOX_RETRY_MAX_DELAY_MS:60000}
     retention-days: ${CURATOR_INTAKE_OUTBOX_RETENTION_DAYS:7}
     cleanup-cron: ${CURATOR_INTAKE_OUTBOX_CLEANUP_CRON:0 50 3 * * *}
+  broadcast:
+    max-recipients: ${BROADCAST_MAX_RECIPIENTS:100}
+    max-template-length: ${BROADCAST_MAX_TEMPLATE_LENGTH:3500}
+  broadcast-outbox:
+    poll-interval-ms: ${BROADCAST_OUTBOX_POLL_INTERVAL_MS:350}
+    batch-size: ${BROADCAST_OUTBOX_BATCH_SIZE:25}
+    publish-timeout-seconds: ${BROADCAST_OUTBOX_PUBLISH_TIMEOUT_SECONDS:10}
+    retry-base-delay-ms: ${BROADCAST_OUTBOX_RETRY_BASE_DELAY_MS:1000}
+    retry-max-delay-ms: ${BROADCAST_OUTBOX_RETRY_MAX_DELAY_MS:60000}
+    retention-days: ${BROADCAST_OUTBOX_RETENTION_DAYS:7}
+    cleanup-cron: ${BROADCAST_OUTBOX_CLEANUP_CRON:0 20 4 * * *}
   kafka:
     retry:
       interval-ms: ${KAFKA_RETRY_INTERVAL_MS:1000}

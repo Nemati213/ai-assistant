@@ -2,10 +2,12 @@
 
 ## Student context and conversation history
 
-Future AI context must be owned by a dedicated student-context component and
-stored in its own PostgreSQL database, tentatively named `student_context_db`.
+The AI service currently owns a PostgreSQL student directory and an idempotent
+message history populated from VK conversation events. The TG connector keeps
+its own event-driven student projection for curator-facing lists and targeted
+broadcasts; services do not read each other's databases.
 
-The data model should distinguish:
+The next context iteration should distinguish:
 
 - `students`: tenant-aware student identity keyed by VK group and VK user.
 - `conversations`: a dialogue in a VK peer/chat.
@@ -23,8 +25,8 @@ Required constraints:
 - no direct database access from other services: exchange context events or
   commands through Kafka.
 
-This is intentionally deferred until the delivery pipeline, retries, and
-billing are reliable.
+The current implementation stores a 20-message sliding window. Conversation
+boundaries, summaries, retention, and deletion remain deferred.
 
 The AI service now owns an idempotent PostgreSQL request journal. A request is
 claimed before the provider call, terminal results are published from stored
@@ -61,8 +63,10 @@ A separate administrative bot will provide controlled operational actions:
 
 The billing ledger, Telegram Stars payment flow, administrator allowlist,
 curator inspection, aggregate statistics, manual crediting, idempotency, and
-the immutable `admin_actions` audit are implemented. Ban/unban, manual debit,
-workflow inspection, and broadcasts remain deferred.
+the immutable `admin_actions` audit are implemented. Curators also have a
+student directory and can send an idempotent personalized broadcast to
+selected VK students. Ban/unban, manual debit, workflow inspection, scheduling,
+segmentation, and AI-assisted broadcast copy remain deferred.
 
 ## Current credit pricing
 

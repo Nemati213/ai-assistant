@@ -44,10 +44,12 @@ import ru.itmo.nemat.tgconnector.repository.CuratorVkGroupRepository;
 import ru.itmo.nemat.tgconnector.repository.SubjectRepository;
 import ru.itmo.nemat.tgconnector.service.BalanceService;
 import ru.itmo.nemat.tgconnector.service.BalanceCreditService;
+import ru.itmo.nemat.tgconnector.service.BroadcastService;
 import ru.itmo.nemat.tgconnector.service.CuratorDecisionService;
 import ru.itmo.nemat.tgconnector.service.CuratorIntakeService;
 import ru.itmo.nemat.tgconnector.service.CuratorRoutingService;
 import ru.itmo.nemat.tgconnector.service.RegistrationStateManager;
+import ru.itmo.nemat.tgconnector.service.StudentDirectoryService;
 import ru.itmo.nemat.tgconnector.service.TelegramRateLimiter;
 import ru.itmo.nemat.tgconnector.service.TelegramStarsInvoiceClient;
 import ru.itmo.nemat.tgconnector.service.VkGroupManagementService;
@@ -68,6 +70,9 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
     private static final String MENU_BUY = "Купить токены";
     private static final String MENU_GROUPS = "Мои сообщества";
     private static final String MENU_ADD_GROUP = "Добавить сообщество";
+    private static final String MENU_STUDENTS = "Ученики";
+    private static final String MENU_BROADCAST = "Рассылка";
+    private static final int STUDENT_PAGE_SIZE = 8;
 
     private final String botUsername;
     private final CuratorDecisionService curatorDecisionService;
@@ -78,6 +83,8 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
     private final RegistrationStateManager stateManager;
     private final CuratorRoutingService curatorRoutingService;
     private final VkGroupManagementService groupManagementService;
+    private final StudentDirectoryService studentDirectoryService;
+    private final BroadcastService broadcastService;
     private final TelegramRateLimiter telegramRateLimiter;
     private final TelegramRateLimitProperties rateLimitProperties;
     private final BalanceService balanceService;
@@ -98,6 +105,8 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
             RegistrationStateManager stateManager,
             CuratorRoutingService curatorRoutingService,
             VkGroupManagementService groupManagementService,
+            StudentDirectoryService studentDirectoryService,
+            BroadcastService broadcastService,
             TelegramRateLimiter telegramRateLimiter,
             TelegramRateLimitProperties rateLimitProperties,
             BalanceService balanceService,
@@ -117,6 +126,8 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
         this.stateManager = stateManager;
         this.curatorRoutingService = curatorRoutingService;
         this.groupManagementService = groupManagementService;
+        this.studentDirectoryService = studentDirectoryService;
+        this.broadcastService = broadcastService;
         this.telegramRateLimiter = telegramRateLimiter;
         this.rateLimitProperties = rateLimitProperties;
         this.balanceService = balanceService;
@@ -159,6 +170,10 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
                 return;
             }
 
+            if (handleBroadcastText(update)) {
+                return;
+            }
+
             if ("/start".equals(messageText)) {
                 handleStartCommand(tgChatId, update.getMessage().getFrom().getUserName());
                 return;
@@ -197,6 +212,22 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
             handleEditAction(update);
         } else if (callbackData.startsWith("reject_")) {
             handleDecisionAction(update, "REJECTED", "reject_");
+        } else if (callbackData.startsWith("students_group_")) {
+            handleStudentGroupSelection(update);
+        } else if (callbackData.startsWith("students_page_")) {
+            handleStudentPage(update);
+        } else if (callbackData.startsWith("broadcast_group_")) {
+            handleBroadcastGroupSelection(update);
+        } else if (callbackData.startsWith("broadcast_toggle_")) {
+            handleBroadcastToggle(update);
+        } else if (callbackData.startsWith("broadcast_page_")) {
+            handleBroadcastPage(update);
+        } else if ("broadcast_text".equals(callbackData)) {
+            handleBroadcastTextRequest(update);
+        } else if ("broadcast_confirm".equals(callbackData)) {
+            handleBroadcastConfirmation(update);
+        } else if ("broadcast_cancel".equals(callbackData)) {
+            handleBroadcastCancellation(update);
         } else if (callbackData.startsWith("remove_group_")) {
             requestGroupRemoval(tgChatId, callbackData.substring("remove_group_".length()));
         }
@@ -221,6 +252,22 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
         }
         if ("/groups".equals(command) || MENU_GROUPS.equals(command)) {
             showGroups(tgChatId);
+            return true;
+        }
+        if ("/students".equals(command) || MENU_STUDENTS.equals(command)) {
+            openStudentDirectory(tgChatId);
+            return true;
+        }
+        if ("/broadcast".equals(command) || MENU_BROADCAST.equals(command)) {
+            openBroadcast(tgChatId);
+            return true;
+        }
+        if ("/cancel".equals(command)) {
+            if (broadcastService.cancel(tgChatId)) {
+                sendText(tgChatId, "Черновик рассылки отменён.");
+            } else {
+                sendText(tgChatId, "Нет черновика, который можно отменить.");
+            }
             return true;
         }
         if ("/add_group".equals(command) || MENU_ADD_GROUP.equals(command)) {
@@ -388,6 +435,442 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(keyboard);
         message.setReplyMarkup(markup);
+        executeSafely(message, tgChatId);
+    }
+
+    private void openStudentDirectory(Long tgChatId) {
+        List<CuratorVkGroup> groups = activeGroups(tgChatId);
+        if (groups.isEmpty()) {
+            sendText(tgChatId, "Сначала подключите активную VK-группу.");
+            return;
+        }
+        if (groups.size() == 1) {
+            showStudentPage(tgChatId, null, groups.get(0).getVkGroupId(), 0);
+            return;
+        }
+        sendGroupChoice(
+                tgChatId,
+                "Выберите VK-группу, ученики которой нужны:",
+                groups,
+                "students_group_"
+        );
+    }
+
+    private void openBroadcast(Long tgChatId) {
+        List<CuratorVkGroup> groups = activeGroups(tgChatId);
+        if (groups.isEmpty()) {
+            sendText(tgChatId, "Сначала подключите активную VK-группу.");
+            return;
+        }
+        if (groups.size() == 1) {
+            beginBroadcast(tgChatId, null, groups.get(0).getVkGroupId());
+            return;
+        }
+        sendGroupChoice(
+                tgChatId,
+                "Выберите VK-группу для рассылки:",
+                groups,
+                "broadcast_group_"
+        );
+    }
+
+    private List<CuratorVkGroup> activeGroups(Long tgChatId) {
+        return groupManagementService.findCuratorGroups(tgChatId).stream()
+                .filter(group -> group.getStatus() == VkGroupStatus.ACTIVE)
+                .toList();
+    }
+
+    private void sendGroupChoice(
+            Long tgChatId,
+            String text,
+            List<CuratorVkGroup> groups,
+            String callbackPrefix
+    ) {
+        List<List<InlineKeyboardButton>> rows = groups.stream()
+                .map(group -> {
+                    InlineKeyboardButton button = new InlineKeyboardButton();
+                    button.setText("VK " + group.getVkGroupId());
+                    button.setCallbackData(
+                            callbackPrefix + group.getVkGroupId()
+                    );
+                    return List.of(button);
+                })
+                .toList();
+        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+        keyboard.setKeyboard(rows);
+        sendInlineText(tgChatId, text, keyboard, false);
+    }
+
+    private void handleStudentGroupSelection(Update update) {
+        String callbackData = update.getCallbackQuery().getData();
+        String vkGroupId = callbackData.substring("students_group_".length());
+        showStudentPage(
+                update.getCallbackQuery().getMessage().getChatId(),
+                update.getCallbackQuery().getMessage().getMessageId(),
+                vkGroupId,
+                0
+        );
+    }
+
+    private void handleStudentPage(Update update) {
+        String value = update.getCallbackQuery().getData()
+                .substring("students_page_".length());
+        int separator = value.lastIndexOf('_');
+        if (separator <= 0) {
+            return;
+        }
+        try {
+            showStudentPage(
+                    update.getCallbackQuery().getMessage().getChatId(),
+                    update.getCallbackQuery().getMessage().getMessageId(),
+                    value.substring(0, separator),
+                    Integer.parseInt(value.substring(separator + 1))
+            );
+        } catch (NumberFormatException exception) {
+            log.debug("Invalid student page callback {}", value);
+        }
+    }
+
+    private void showStudentPage(
+            Long tgChatId,
+            Integer messageId,
+            String vkGroupId,
+            int requestedPage
+    ) {
+        StudentDirectoryService.StudentPage page = studentDirectoryService.page(
+                tgChatId,
+                vkGroupId,
+                requestedPage,
+                STUDENT_PAGE_SIZE
+        );
+        StringBuilder text = new StringBuilder()
+                .append("Ученики VK ")
+                .append(vkGroupId)
+                .append(": ")
+                .append(page.total());
+        if (page.students().isEmpty()) {
+            text.append("\n\nПока нет учеников с личным диалогом.");
+        } else {
+            int offset = page.page() * STUDENT_PAGE_SIZE;
+            for (int index = 0; index < page.students().size(); index++) {
+                StudentDirectoryService.StudentView student =
+                        page.students().get(index);
+                text.append("\n")
+                        .append(offset + index + 1)
+                        .append(". ")
+                        .append(student.label())
+                        .append(" (VK ")
+                        .append(student.vkUserId())
+                        .append(")");
+            }
+        }
+
+        InlineKeyboardMarkup keyboard = studentPageKeyboard(page);
+        if (messageId == null) {
+            sendInlineText(tgChatId, text.toString(), keyboard, false);
+        } else {
+            editMessageText(
+                    tgChatId,
+                    messageId,
+                    text.toString(),
+                    keyboard,
+                    null
+            );
+        }
+    }
+
+    private InlineKeyboardMarkup studentPageKeyboard(
+            StudentDirectoryService.StudentPage page
+    ) {
+        List<InlineKeyboardButton> navigation = new ArrayList<>();
+        if (page.page() > 0) {
+            navigation.add(inlineButton(
+                    "<",
+                    "students_page_"
+                            + page.vkGroupId()
+                            + "_"
+                            + (page.page() - 1)
+            ));
+        }
+        navigation.add(inlineButton(
+                (page.page() + 1) + "/" + page.pageCount(),
+                "students_noop"
+        ));
+        if (page.page() + 1 < page.pageCount()) {
+            navigation.add(inlineButton(
+                    ">",
+                    "students_page_"
+                            + page.vkGroupId()
+                            + "_"
+                            + (page.page() + 1)
+            ));
+        }
+        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+        keyboard.setKeyboard(List.of(navigation));
+        return keyboard;
+    }
+
+    private void handleBroadcastGroupSelection(Update update) {
+        String vkGroupId = update.getCallbackQuery().getData()
+                .substring("broadcast_group_".length());
+        beginBroadcast(
+                update.getCallbackQuery().getMessage().getChatId(),
+                update.getCallbackQuery().getMessage().getMessageId(),
+                vkGroupId
+        );
+    }
+
+    private void beginBroadcast(
+            Long tgChatId,
+            Integer messageId,
+            String vkGroupId
+    ) {
+        try {
+            broadcastService.begin(tgChatId, vkGroupId);
+            showBroadcastSelection(tgChatId, messageId, 0);
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            sendText(tgChatId, exception.getMessage());
+        }
+    }
+
+    private void handleBroadcastToggle(Update update) {
+        String value = update.getCallbackQuery().getData()
+                .substring("broadcast_toggle_".length());
+        int separator = value.indexOf('_');
+        if (separator <= 0) {
+            return;
+        }
+        Long tgChatId = update.getCallbackQuery().getMessage().getChatId();
+        try {
+            int page = Integer.parseInt(value.substring(0, separator));
+            UUID studentId = UUID.fromString(value.substring(separator + 1));
+            broadcastService.toggleRecipient(tgChatId, studentId);
+            showBroadcastSelection(
+                    tgChatId,
+                    update.getCallbackQuery().getMessage().getMessageId(),
+                    page
+            );
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            sendTemporaryText(tgChatId, exception.getMessage());
+        }
+    }
+
+    private void handleBroadcastPage(Update update) {
+        try {
+            showBroadcastSelection(
+                    update.getCallbackQuery().getMessage().getChatId(),
+                    update.getCallbackQuery().getMessage().getMessageId(),
+                    Integer.parseInt(
+                            update.getCallbackQuery().getData()
+                                    .substring("broadcast_page_".length())
+                    )
+            );
+        } catch (NumberFormatException exception) {
+            log.debug(
+                    "Invalid broadcast page callback {}",
+                    update.getCallbackQuery().getData()
+            );
+        }
+    }
+
+    private void showBroadcastSelection(
+            Long tgChatId,
+            Integer messageId,
+            int requestedPage
+    ) {
+        try {
+            BroadcastService.SelectionPage page =
+                    broadcastService.selectionPage(
+                            tgChatId,
+                            requestedPage,
+                            STUDENT_PAGE_SIZE
+                    );
+            String text = "Рассылка для VK "
+                    + page.vkGroupId()
+                    + "\nВыбрано: "
+                    + page.selected()
+                    + "/"
+                    + page.maxRecipients()
+                    + "\n\nНажмите на ученика, чтобы включить или исключить его.";
+            InlineKeyboardMarkup keyboard = broadcastSelectionKeyboard(page);
+            if (messageId == null) {
+                sendInlineText(tgChatId, text, keyboard, false);
+            } else {
+                editMessageText(
+                        tgChatId,
+                        messageId,
+                        text,
+                        keyboard,
+                        page.campaignId()
+                );
+            }
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            sendText(tgChatId, exception.getMessage());
+        }
+    }
+
+    private InlineKeyboardMarkup broadcastSelectionKeyboard(
+            BroadcastService.SelectionPage page
+    ) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        for (BroadcastService.SelectableStudent student : page.students()) {
+            String marker = student.selected() ? "[x] " : "[ ] ";
+            rows.add(List.of(inlineButton(
+                    marker + truncate(student.label(), 42),
+                    "broadcast_toggle_"
+                            + page.page()
+                            + "_"
+                            + student.id()
+            )));
+        }
+
+        List<InlineKeyboardButton> navigation = new ArrayList<>();
+        if (page.page() > 0) {
+            navigation.add(inlineButton(
+                    "<",
+                    "broadcast_page_" + (page.page() - 1)
+            ));
+        }
+        navigation.add(inlineButton(
+                (page.page() + 1) + "/" + page.pageCount(),
+                "broadcast_noop"
+        ));
+        if (page.page() + 1 < page.pageCount()) {
+            navigation.add(inlineButton(
+                    ">",
+                    "broadcast_page_" + (page.page() + 1)
+            ));
+        }
+        rows.add(navigation);
+        rows.add(List.of(
+                inlineButton("Продолжить", "broadcast_text"),
+                inlineButton("Отмена", "broadcast_cancel")
+        ));
+
+        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+        keyboard.setKeyboard(rows);
+        return keyboard;
+    }
+
+    private void handleBroadcastTextRequest(Update update) {
+        Long tgChatId = update.getCallbackQuery().getMessage().getChatId();
+        try {
+            BroadcastService.TextRequest request =
+                    broadcastService.requestText(tgChatId);
+            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+            keyboard.setKeyboard(List.of(List.of(
+                    inlineButton("Отмена", "broadcast_cancel")
+            )));
+            editMessageText(
+                    tgChatId,
+                    update.getCallbackQuery().getMessage().getMessageId(),
+                    "Выбрано учеников: "
+                            + request.recipients()
+                            + "\n\nОтправьте текст рассылки одним сообщением.\n"
+                            + "Доступные подстановки: {first_name}, "
+                            + "{last_name}, {name}.",
+                    keyboard,
+                    request.campaignId()
+            );
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            sendTemporaryText(tgChatId, exception.getMessage());
+        }
+    }
+
+    private boolean handleBroadcastText(Update update) {
+        Long tgChatId = update.getMessage().getChatId();
+        if (!broadcastService.isAwaitingText(tgChatId)) {
+            return false;
+        }
+        try {
+            BroadcastService.Preview preview = broadcastService.acceptText(
+                    tgChatId,
+                    update.getMessage().getText()
+            );
+            String text = "<b>Предпросмотр рассылки</b>\n\n"
+                    + HtmlUtils.htmlEscape(preview.renderedExample())
+                    + "\n\nПолучатель примера: "
+                    + HtmlUtils.htmlEscape(preview.exampleStudent())
+                    + "\nВсего получателей: "
+                    + preview.recipients();
+            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+            keyboard.setKeyboard(List.of(List.of(
+                    inlineButton("Отправить", "broadcast_confirm"),
+                    inlineButton("Отмена", "broadcast_cancel")
+            )));
+            sendInlineText(tgChatId, text, keyboard, true);
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            sendText(tgChatId, exception.getMessage());
+        }
+        return true;
+    }
+
+    private void handleBroadcastConfirmation(Update update) {
+        Long tgChatId = update.getCallbackQuery().getMessage().getChatId();
+        try {
+            BroadcastService.QueueResult result =
+                    broadcastService.queue(tgChatId);
+            editMessageText(
+                    tgChatId,
+                    update.getCallbackQuery().getMessage().getMessageId(),
+                    "Рассылка запущена. Получателей: "
+                            + result.recipients()
+                            + ". Итог придёт отдельным сообщением.",
+                    null,
+                    result.campaignId()
+            );
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            sendTemporaryText(tgChatId, exception.getMessage());
+        }
+    }
+
+    private void handleBroadcastCancellation(Update update) {
+        Long tgChatId = update.getCallbackQuery().getMessage().getChatId();
+        if (broadcastService.cancel(tgChatId)) {
+            editMessageText(
+                    tgChatId,
+                    update.getCallbackQuery().getMessage().getMessageId(),
+                    "Черновик рассылки отменён.",
+                    null,
+                    null
+            );
+        } else {
+            sendTemporaryText(
+                    tgChatId,
+                    "Рассылку уже нельзя отменить или она завершена."
+            );
+        }
+    }
+
+    public void notifyBroadcastCompleted(BroadcastService.Completion completion) {
+        String text = "Рассылка завершена.\n"
+                + "Всего: "
+                + completion.total()
+                + "\nДоставлено: "
+                + completion.sent()
+                + "\nОшибки: "
+                + completion.failed();
+        sendText(completion.tgChatId(), text);
+    }
+
+    private InlineKeyboardButton inlineButton(String text, String callbackData) {
+        InlineKeyboardButton button = new InlineKeyboardButton();
+        button.setText(text);
+        button.setCallbackData(callbackData);
+        return button;
+    }
+
+    private void sendInlineText(
+            Long tgChatId,
+            String text,
+            InlineKeyboardMarkup keyboard,
+            boolean html
+    ) {
+        SendMessage message = new SendMessage(tgChatId.toString(), text);
+        if (html) {
+            message.setParseMode("HTML");
+        }
+        message.setReplyMarkup(keyboard);
         executeSafely(message, tgChatId);
     }
 
@@ -1482,8 +1965,12 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
         communities.add(MENU_GROUPS);
         communities.add(MENU_ADD_GROUP);
 
+        KeyboardRow audience = new KeyboardRow();
+        audience.add(MENU_STUDENTS);
+        audience.add(MENU_BROADCAST);
+
         ReplyKeyboardMarkup keyboard = new ReplyKeyboardMarkup();
-        keyboard.setKeyboard(List.of(finance, communities));
+        keyboard.setKeyboard(List.of(finance, communities, audience));
         keyboard.setResizeKeyboard(true);
         keyboard.setIsPersistent(true);
         keyboard.setOneTimeKeyboard(false);

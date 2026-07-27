@@ -51,6 +51,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -700,6 +701,26 @@ class WorkflowOrchestratorTest {
         assertThat(state.getStatus()).isEqualTo(WorkflowStatus.COMPLETED);
         assertThat(state.getVkMessageId()).isEqualTo(555L);
         assertThat(state.getDeliveryError()).isNull();
+    }
+
+    @Test
+    void ignoresVkDeliveryResultOwnedByAnotherFlow() {
+        UUID requestId = UUID.randomUUID();
+        when(workflowStateRepository.findByIdForUpdate(requestId))
+                .thenReturn(Optional.empty());
+
+        orchestrator.handleVkDeliveryResult(
+                new VkMessageDeliveryResultEvent(
+                        requestId,
+                        true,
+                        555L,
+                        null,
+                        1
+                )
+        );
+
+        verify(workflowStateRepository, never()).save(any());
+        verifyNoInteractions(studentConversationProducer);
     }
 
     private VkMessageEvent vkEvent(UUID requestId) {
