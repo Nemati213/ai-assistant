@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/vk/method/groups.getById"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "response": [
+        {
+          "id": 900001,
+          "name": "Staging Group"
+        }
+      ]
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}

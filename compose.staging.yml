@@ -1,0 +1,247 @@
+name: curator-staging
+
+x-app-common: &app-common
+  restart: "no"
+  read_only: true
+  tmpfs:
+    - /tmp:size=128m,mode=1777
+  networks:
+    - staging
+  security_opt:
+    - no-new-privileges:true
+  environment: &app-environment
+    APP_LOG_LEVEL: ${STAGING_APP_LOG_LEVEL:-WARN}
+    APP_SECRET_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+    KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    KAFKA_RETRY_INTERVAL_MS: 250
+    KAFKA_RETRY_MAX_ATTEMPTS: 5
+
+services:
+  provider-stub:
+    image: wiremock/wiremock:3.13.2
+    command:
+      - --global-response-templating
+      - --disable-gzip
+      - --disable-http2-plain
+      - --no-request-journal
+    volumes:
+      - ./infra/staging/wiremock:/home/wiremock:ro
+    networks:
+      - staging
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  postgres:
+    image: postgres:17.10-alpine3.23
+    environment:
+      POSTGRES_USER: staging_admin
+      POSTGRES_PASSWORD: staging_admin_password
+      POSTGRES_DB: staging_admin
+      POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
+      TG_DB_USERNAME: staging_tg
+      TG_DB_PASSWORD: staging_tg_password
+      VK_DB_USERNAME: staging_vk
+      VK_DB_PASSWORD: staging_vk_password
+      ORCHESTRATOR_DB_USERNAME: staging_orchestrator
+      ORCHESTRATOR_DB_PASSWORD: staging_orchestrator_password
+      AI_DB_USERNAME: staging_ai
+      AI_DB_PASSWORD: staging_ai_password
+    volumes:
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    shm_size: 256mb
+    networks:
+      - staging
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U staging_admin -d staging_admin"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    image: redis:7.4-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --requirepass
+      - staging_redis_password
+    networks:
+      - staging
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli -a staging_redis_password ping | grep PONG
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  kafka:
+    image: apache/kafka:4.1.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    networks:
+      - staging
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+
+  tg-connector-service:
+    <<: *app-common
+    build:
+      context: .
+      args:
+        SERVICE: tg-connector-service
+    environment:
+      <<: *app-environment
+      SPRING_PROFILES_ACTIVE: staging
+      TG_DB_URL: jdbc:postgresql://postgres:5432/tg_connector_db
+      TG_DB_USERNAME: staging_tg
+      TG_DB_PASSWORD: staging_tg_password
+      REDIS_URI: redis://:staging_redis_password@redis:6379
+      TELEGRAM_BOT_NAME: staging_curator_bot
+      TELEGRAM_BOT_TOKEN: staging-curator-token
+      TELEGRAMBOTS_ENABLED: "false"
+      CURATOR_WORKFLOW_MODE: automatic
+      STAGING_AUTO_CURATOR_CONFIRM: isolated-staging-only
+      STAGING_BOOTSTRAP_ENABLED: "true"
+      STAGING_BOOTSTRAP_CONFIRM: isolated-staging-only
+      STAGING_BOOTSTRAP_TG_CHAT_ID: "900000001"
+      STAGING_BOOTSTRAP_VK_GROUP_ID: "900001"
+      STAGING_BOOTSTRAP_VK_TOKEN: staging-vk-token
+      STAGING_BOOTSTRAP_VK_SECRET: staging-vk-secret
+      STAGING_BOOTSTRAP_VK_CONFIRMATION_CODE: staging-confirmation
+      STAGING_BOOTSTRAP_BALANCE: "1000000000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8084/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  vk-connector-service:
+    <<: *app-common
+    build:
+      context: .
+      args:
+        SERVICE: vk-connector-service
+    environment:
+      <<: *app-environment
+      VK_DB_URL: jdbc:postgresql://postgres:5432/vk_connector_db
+      VK_DB_USERNAME: staging_vk
+      VK_DB_PASSWORD: staging_vk_password
+      VK_CALLBACK_URL: http://vk-connector-service:8081/vk/webhook
+      VK_API_URL: http://provider-stub:8080/vk/method
+      VK_HTTP_CONNECT_TIMEOUT: 2s
+      VK_HTTP_READ_TIMEOUT: 5s
+    ports:
+      - "127.0.0.1:${STAGING_VK_PORT:-18081}:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      provider-stub:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8081/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  orchestrator-service:
+    <<: *app-common
+    build:
+      context: .
+      args:
+        SERVICE: orchestrator-service
+    environment:
+      <<: *app-environment
+      ORCHESTRATOR_DB_URL: jdbc:postgresql://postgres:5432/orchestrator_db
+      ORCHESTRATOR_DB_USERNAME: staging_orchestrator
+      ORCHESTRATOR_DB_PASSWORD: staging_orchestrator_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8082/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  ai-service:
+    <<: *app-common
+    build:
+      context: .
+      args:
+        SERVICE: ai-service
+    environment:
+      <<: *app-environment
+      AI_DB_URL: jdbc:postgresql://postgres:5432/ai_service_db
+      AI_DB_USERNAME: staging_ai
+      AI_DB_PASSWORD: staging_ai_password
+      OPENROUTER_URL: http://provider-stub:8080/openrouter/chat/completions
+      OPENROUTER_API_KEY: staging-openrouter-key
+      OPENROUTER_MODEL: staging/model
+      OPENROUTER_CONNECT_TIMEOUT: 2s
+      OPENROUTER_READ_TIMEOUT: 5s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      provider-stub:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8083/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+networks:
+  staging:
+    driver: bridge

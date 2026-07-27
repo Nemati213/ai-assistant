@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/vk/method/groups.setCallbackSettings"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "response": 1
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}

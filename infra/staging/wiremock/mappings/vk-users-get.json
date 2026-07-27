@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/vk/method/users.get"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "response": [
+        {
+          "id": 900000001,
+          "first_name": "Staging",
+          "last_name": "Student"
+        }
+      ]
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}

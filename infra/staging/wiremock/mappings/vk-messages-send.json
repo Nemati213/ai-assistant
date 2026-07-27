@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/vk/method/messages.send"
+  },
+  "response": {
+    "status": 200,
+    "body": "{\"response\":{\"message_id\":{{randomValue length=9 type='NUMERIC'}} } }",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "transformers": [
+      "response-template"
+    ]
+  }
+}

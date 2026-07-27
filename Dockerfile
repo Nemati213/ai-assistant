@@ -11,7 +11,8 @@ COPY orchestrator-service ./orchestrator-service
 COPY tg-connector-service ./tg-connector-service
 COPY vk-connector-service ./vk-connector-service
 
-RUN test -n "$SERVICE" \
+RUN --mount=type=cache,target=/home/gradle/.gradle,sharing=locked \
+    test -n "$SERVICE" \
     && gradle ":${SERVICE}:test" ":${SERVICE}:bootJar" --no-daemon \
     && mkdir -p /out \
     && find "${SERVICE}/build/libs" \

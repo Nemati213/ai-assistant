@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/vk/method/groups.getCallbackServers"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "response": {
+        "count": 0,
+        "items": []
+      }
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}

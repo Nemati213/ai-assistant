@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/vk/method/groups.addCallbackServer"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "response": {
+        "server_id": 9001
+      }
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}
