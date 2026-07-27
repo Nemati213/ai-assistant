@@ -1,0 +1,50 @@
+name: Staging load
+
+on:
+  workflow_dispatch:
+    inputs:
+      rates:
+        description: Space-separated RPS steps
+        required: true
+        default: "10 25 50 100"
+      duration:
+        description: Duration of every step
+        required: true
+        default: "10s"
+
+permissions:
+  contents: read
+
+jobs:
+  end-to-end-load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Make staging scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Start isolated staging
+        env:
+          STAGING_CONFIRM: isolated-staging-only
+        run: ./scripts/staging-up.sh
+
+      - name: Run end-to-end load ladder
+        env:
+          STAGING_LOAD_CONFIRM: run-isolated-staging-load
+          STAGING_RATES: ${{ inputs.rates }}
+          STAGING_STEP_DURATION: ${{ inputs.duration }}
+        run: ./scripts/run-staging-load-ladder.sh
+
+      - name: Print staging logs
+        if: failure()
+        run: docker compose -f compose.staging.yml logs --tail=300
+
+      - name: Remove isolated staging
+        if: always()
+        env:
+          STAGING_DOWN_CONFIRM: remove-isolated-staging
+        run: ./scripts/staging-down.sh

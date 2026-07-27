@@ -18,8 +18,47 @@ but it does not create durable events.
 `write` sends unique `message_new` callbacks. It exercises the full webhook
 acceptance path and creates transactional outbox records. Those records can
 continue through Kafka and downstream services, so use this mode only in an
-isolated stack. The synthetic user ID is deliberately non-numeric to avoid VK
-profile API calls.
+isolated stack. Every callback uses a unique synthetic, non-numeric user ID to
+avoid real VK profile calls and unbounded conversation-history growth during a
+capacity baseline.
+
+## Isolated end-to-end staging
+
+The repository includes a disposable Compose stack with PostgreSQL, Redis,
+Kafka, all four services, and WireMock substitutes for VK and OpenRouter.
+Telegram long polling is disabled. A staging-only bootstrap creates an
+encrypted VK configuration, a synthetic curator, and artificial credits using
+the normal application flow. A staging-only curator then routes intake to AI
+and approves generated answers automatically.
+
+Start it:
+
+```bash
+chmod +x scripts/staging-up.sh scripts/staging-down.sh
+STAGING_CONFIRM=isolated-staging-only ./scripts/staging-up.sh
+```
+
+Run the default 10/25/50/100 RPS ladder:
+
+```bash
+chmod +x scripts/run-staging-load-ladder.sh
+STAGING_LOAD_CONFIRM=run-isolated-staging-load \
+  ./scripts/run-staging-load-ladder.sh
+```
+
+Each default step lasts 10 seconds. The runner waits for every expected
+workflow to reach `COMPLETED` and for transactional outboxes to drain before
+starting the next step. Override `STAGING_STEP_DURATION`, `STAGING_RATES`, or
+`STAGING_DRAIN_TIMEOUT_SECONDS` for a longer server run.
+
+Remove the complete stack and its disposable data:
+
+```bash
+STAGING_DOWN_CONFIRM=remove-isolated-staging ./scripts/staging-down.sh
+```
+
+The same scenario is available as the manually triggered `Staging load`
+GitHub Actions workflow.
 
 ## Running
 
@@ -73,8 +112,8 @@ overloaded target.
 
 1. Run `read` at 5 RPS for 1 minute as a deployment smoke test.
 2. Run `read` with a stepwise series such as 10, 25, 50, and 100 RPS.
-3. Run `write` at the expected launch rate and inspect PostgreSQL pool usage,
-   HTTP p95/p99, error rate, outbox growth, Kafka lag, and DLT alerts.
+3. Run the isolated end-to-end ladder and inspect HTTP p95/p99, completion
+   count, outbox drain time, Kafka lag, PostgreSQL pool usage, and DLT alerts.
 4. Hold the expected rate for at least 30 minutes as a soak test.
 5. Increase the rate until an SLO fails, record the first bottleneck, and stop
    before the staging host becomes unstable.

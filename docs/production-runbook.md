@@ -145,9 +145,12 @@ Access it through an SSH tunnel, never by opening port 8080 publicly.
 
 The reproducible k6 scenario and safety guardrails are documented in
 [load testing](load-testing.md). The runner refuses to start without an
-explicit non-production confirmation. Establish a read-path baseline first,
-then test durable webhook acceptance in an isolated staging stack while
-watching Grafana, Kafka lag, DLT, and PostgreSQL pool saturation.
+explicit non-production confirmation. The repository also contains a
+disposable full-service staging stack with VK and OpenRouter substitutes,
+disabled Telegram polling, synthetic encrypted credentials, and an automatic
+test curator. Establish a read-path baseline first, then run the end-to-end
+10/25/50/100 RPS ladder while watching Grafana, Kafka lag, DLT, and PostgreSQL
+pool saturation.
 
 ## Monitoring
 

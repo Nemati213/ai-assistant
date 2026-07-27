@@ -43,6 +43,12 @@ jobs:
       - name: Validate Compose production file
         run: docker compose --env-file .env.prod.example -f compose.prod.yml config --quiet
 
+      - name: Validate isolated staging Compose file
+        run: docker compose -f compose.staging.yml config --quiet
+
+      - name: Validate provider stub mappings
+        run: jq empty infra/staging/wiremock/mappings/*.json
+
       - name: Validate Prometheus configuration
         run: >-
           docker run --rm
@@ -85,6 +91,9 @@ jobs:
           scripts/drill-postgres-restore.sh
           scripts/test-postgres-backup-restore.sh
           scripts/run-load-test.sh
+          scripts/staging-up.sh
+          scripts/staging-down.sh
+          scripts/run-staging-load-ladder.sh
           scripts/lib/postgres-backup-common.sh
 
       - name: Analyze production shell scripts
@@ -99,6 +108,9 @@ jobs:
           scripts/drill-postgres-restore.sh
           scripts/test-postgres-backup-restore.sh
           scripts/run-load-test.sh
+          scripts/staging-up.sh
+          scripts/staging-down.sh
+          scripts/run-staging-load-ladder.sh
           scripts/lib/postgres-backup-common.sh
 
       - name: Exercise PostgreSQL backup and restore

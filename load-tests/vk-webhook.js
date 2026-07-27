@@ -97,8 +97,8 @@ function writePayload(config, uniqueId) {
       message: {
         id: (__VU * 1000000000) + __ITER,
         date: Math.floor(Date.now() / 1000),
-        peer_id: `load-peer-${__VU}`,
-        from_id: `load-user-${__VU}`,
+        peer_id: `load-peer-${uniqueId}`,
+        from_id: `load-user-${uniqueId}`,
         text: `Load test message ${uniqueId}`,
         attachments: [],
       },
