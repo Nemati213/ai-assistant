@@ -49,6 +49,8 @@ telegram:
     admin-ids: ${TELEGRAM_ADMIN_IDS:}
   ui:
     transient-message-ttl: ${TELEGRAM_TRANSIENT_MESSAGE_TTL:5s}
+  mini-app:
+    url: ${TELEGRAM_MINI_APP_URL:}
   stars:
     product-payload: ${TELEGRAM_STARS_PRODUCT_PAYLOAD:pro-350-stars-v1}
     price: ${TELEGRAM_STARS_PRO_PRICE:350}
@@ -105,6 +107,9 @@ app:
   broadcast:
     max-recipients: ${BROADCAST_MAX_RECIPIENTS:100}
     max-template-length: ${BROADCAST_MAX_TEMPLATE_LENGTH:3500}
+  mini-app:
+    allowed-origin: ${MINI_APP_ALLOWED_ORIGIN:}
+    init-data-max-age: ${MINI_APP_INIT_DATA_MAX_AGE:10m}
   broadcast-outbox:
     poll-interval-ms: ${BROADCAST_OUTBOX_POLL_INTERVAL_MS:350}
     batch-size: ${BROADCAST_OUTBOX_BATCH_SIZE:25}

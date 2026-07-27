@@ -9,6 +9,8 @@ import ru.itmo.nemat.tgconnector.model.CuratorDecisionRequest;
 import ru.itmo.nemat.tgconnector.model.CuratorDecisionRequestStatus;
 
 import java.util.Optional;
+import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 
 public interface CuratorDecisionRequestRepository
@@ -28,5 +30,11 @@ public interface CuratorDecisionRequestRepository
             Long tgChatId,
             Integer editPromptMessageId,
             CuratorDecisionRequestStatus status
+    );
+
+    List<CuratorDecisionRequest>
+    findAllByTgChatIdAndStatusInOrderByCreatedAtAsc(
+            Long tgChatId,
+            Collection<CuratorDecisionRequestStatus> statuses
     );
 }

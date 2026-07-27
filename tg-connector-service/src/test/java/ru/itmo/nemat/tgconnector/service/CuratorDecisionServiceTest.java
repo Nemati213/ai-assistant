@@ -143,6 +143,48 @@ class CuratorDecisionServiceTest {
         verify(outboxRepository, never()).save(any());
     }
 
+    @Test
+    void editsAnswerFromMiniAppAndAdvancesRevision() {
+        UUID requestId = UUID.randomUUID();
+        CuratorDecisionRequest request = request(requestId);
+        when(requestRepository.findByIdForUpdate(requestId))
+                .thenReturn(Optional.of(request));
+
+        Optional<CuratorDecisionService.DecisionView> result =
+                service.editFromMiniApp(
+                        requestId,
+                        55L,
+                        0,
+                        " Clearer edited answer "
+                );
+
+        assertThat(result).isPresent();
+        assertThat(result.orElseThrow().currentAnswer())
+                .isEqualTo("Clearer edited answer");
+        assertThat(result.orElseThrow().revision()).isEqualTo(1);
+        assertThat(request.getStatus())
+                .isEqualTo(CuratorDecisionRequestStatus.AWAITING_DECISION);
+    }
+
+    @Test
+    void refusesStaleMiniAppEdit() {
+        UUID requestId = UUID.randomUUID();
+        CuratorDecisionRequest request = request(requestId);
+        when(requestRepository.findByIdForUpdate(requestId))
+                .thenReturn(Optional.of(request));
+
+        Optional<CuratorDecisionService.DecisionView> result =
+                service.editFromMiniApp(
+                        requestId,
+                        55L,
+                        3,
+                        "Stale answer"
+                );
+
+        assertThat(result).isEmpty();
+        assertThat(request.getCurrentAnswer()).isEqualTo("AI answer");
+    }
+
     private CuratorApprovalRequest approval(UUID requestId) {
         return new CuratorApprovalRequest(
                 requestId,

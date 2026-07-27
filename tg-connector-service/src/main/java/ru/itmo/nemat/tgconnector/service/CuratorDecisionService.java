@@ -14,6 +14,7 @@ import ru.itmo.nemat.tgconnector.repository.CuratorDecisionOutboxRepository;
 import ru.itmo.nemat.tgconnector.repository.CuratorDecisionRequestRepository;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -136,6 +137,55 @@ public class CuratorDecisionService {
         return true;
     }
 
+    @Transactional(readOnly = true)
+    public List<DecisionListView> pending(long tgChatId) {
+        return requestRepository
+                .findAllByTgChatIdAndStatusInOrderByCreatedAtAsc(
+                        tgChatId,
+                        List.of(
+                                CuratorDecisionRequestStatus.AWAITING_DECISION,
+                                CuratorDecisionRequestStatus.AWAITING_EDIT
+                        )
+                )
+                .stream()
+                .map(this::toListView)
+                .toList();
+    }
+
+    @Transactional
+    public Optional<DecisionView> editFromMiniApp(
+            UUID requestId,
+            long tgChatId,
+            int revision,
+            String editedAnswer
+    ) {
+        String answer = editedAnswer == null ? "" : editedAnswer.strip();
+        if (answer.isBlank()) {
+            throw new IllegalArgumentException("Answer cannot be empty");
+        }
+        if (answer.length() > 4096) {
+            throw new IllegalArgumentException(
+                    "Answer cannot be longer than 4096 characters"
+            );
+        }
+
+        CuratorDecisionRequest request = requireOwnedForUpdate(requestId, tgChatId);
+        if (request.getRevision() != revision
+                || (request.getStatus()
+                != CuratorDecisionRequestStatus.AWAITING_DECISION
+                && request.getStatus()
+                != CuratorDecisionRequestStatus.AWAITING_EDIT)) {
+            return Optional.empty();
+        }
+
+        request.applyEditedAnswer(
+                answer,
+                request.getApprovalMessageId(),
+                Instant.now()
+        );
+        return Optional.of(toView(request));
+    }
+
     @Transactional
     public boolean queueDecision(
             UUID requestId,
@@ -234,6 +284,20 @@ public class CuratorDecisionService {
         );
     }
 
+    private DecisionListView toListView(CuratorDecisionRequest request) {
+        return new DecisionListView(
+                request.getRequestId(),
+                request.getVkGroupId(),
+                request.getStudentQuestion(),
+                request.getCurrentAnswer(),
+                request.getCreditsToCharge(),
+                request.getRevision(),
+                request.getStatus(),
+                request.getCreatedAt(),
+                request.getUpdatedAt()
+        );
+    }
+
     private String serialize(CuratorDecisionEvent event) {
         try {
             return objectMapper.writeValueAsString(event);
@@ -251,6 +315,19 @@ public class CuratorDecisionService {
             int revision,
             Integer approvalMessageId,
             Integer editPromptMessageId
+    ) {
+    }
+
+    public record DecisionListView(
+            UUID requestId,
+            String vkGroupId,
+            String studentQuestion,
+            String currentAnswer,
+            java.math.BigDecimal creditsToCharge,
+            int revision,
+            CuratorDecisionRequestStatus status,
+            Instant createdAt,
+            Instant updatedAt
     ) {
     }
 }

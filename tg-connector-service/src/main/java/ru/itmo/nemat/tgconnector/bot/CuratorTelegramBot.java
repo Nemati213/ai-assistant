@@ -25,7 +25,9 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.ForceReplyKeyboa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
+import org.telegram.telegrambots.meta.api.objects.webapp.WebAppInfo;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiRequestException;
 import ru.itmo.nemat.tgconnector.config.TelegramRateLimitProperties;
@@ -72,6 +74,7 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
     private static final String MENU_ADD_GROUP = "Добавить сообщество";
     private static final String MENU_STUDENTS = "Ученики";
     private static final String MENU_BROADCAST = "Рассылка";
+    private static final String MENU_APP = "Открыть кабинет";
     private static final int STUDENT_PAGE_SIZE = 8;
 
     private final String botUsername;
@@ -93,6 +96,7 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
     private final TelegramStarsProperties starsProperties;
     private final TaskScheduler taskScheduler;
     private final Duration transientMessageTtl;
+    private final String miniAppUrl;
 
     public CuratorTelegramBot(
             @Value("${telegram.bot-token}") String botToken,
@@ -115,7 +119,8 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
             TelegramStarsProperties starsProperties,
             TaskScheduler taskScheduler,
             @Value("${telegram.ui.transient-message-ttl:5s}")
-            Duration transientMessageTtl) {
+            Duration transientMessageTtl,
+            @Value("${telegram.mini-app.url:}") String miniAppUrl) {
         super(botToken);
         this.botUsername = botUsername;
         this.curatorDecisionService = curatorDecisionService;
@@ -136,6 +141,7 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
         this.starsProperties = starsProperties;
         this.taskScheduler = taskScheduler;
         this.transientMessageTtl = transientMessageTtl;
+        this.miniAppUrl = miniAppUrl;
     }
 
     @Override
@@ -260,6 +266,10 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
         }
         if ("/broadcast".equals(command) || MENU_BROADCAST.equals(command)) {
             openBroadcast(tgChatId);
+            return true;
+        }
+        if ("/app".equals(command) || MENU_APP.equals(command)) {
+            sendMiniAppButton(tgChatId);
             return true;
         }
         if ("/cancel".equals(command)) {
@@ -1970,11 +1980,41 @@ public class CuratorTelegramBot extends TelegramLongPollingBot {
         audience.add(MENU_BROADCAST);
 
         ReplyKeyboardMarkup keyboard = new ReplyKeyboardMarkup();
-        keyboard.setKeyboard(List.of(finance, communities, audience));
+        List<KeyboardRow> rows = new ArrayList<>(
+                List.of(finance, communities, audience)
+        );
+        if (miniAppUrl != null && !miniAppUrl.isBlank()) {
+            KeyboardButton appButton = new KeyboardButton(MENU_APP);
+            appButton.setWebApp(new WebAppInfo(miniAppUrl));
+            KeyboardRow app = new KeyboardRow();
+            app.add(appButton);
+            rows.add(app);
+        }
+        keyboard.setKeyboard(rows);
         keyboard.setResizeKeyboard(true);
         keyboard.setIsPersistent(true);
         keyboard.setOneTimeKeyboard(false);
         return keyboard;
+    }
+
+    private void sendMiniAppButton(Long tgChatId) {
+        if (miniAppUrl == null || miniAppUrl.isBlank()) {
+            sendText(tgChatId, "Mini App пока не опубликован.");
+            return;
+        }
+
+        InlineKeyboardButton button = new InlineKeyboardButton();
+        button.setText(MENU_APP);
+        button.setWebApp(new WebAppInfo(miniAppUrl));
+        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+        keyboard.setKeyboard(List.of(List.of(button)));
+
+        SendMessage message = new SendMessage(
+                tgChatId.toString(),
+                "Откройте кабинет куратора:"
+        );
+        message.setReplyMarkup(keyboard);
+        executeSafely(message, tgChatId);
     }
 
     private void sendTemporaryText(Long tgChatId, String text) {

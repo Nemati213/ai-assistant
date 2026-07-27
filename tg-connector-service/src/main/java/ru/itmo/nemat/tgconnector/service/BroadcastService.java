@@ -465,6 +465,50 @@ public class BroadcastService {
         ) > 0;
     }
 
+    @Transactional(readOnly = true)
+    public List<CampaignSummary> history(long tgChatId, int requestedLimit) {
+        int limit = Math.max(1, Math.min(50, requestedLimit));
+        return jdbcTemplate.query("""
+                SELECT
+                    campaign.id,
+                    campaign.vk_group_id,
+                    campaign.status,
+                    campaign.message_template,
+                    campaign.created_at,
+                    campaign.updated_at,
+                    COUNT(recipient.request_id) AS recipients,
+                    COUNT(*) FILTER (WHERE recipient.status = 'SENT') AS sent,
+                    COUNT(*) FILTER (WHERE recipient.status = 'FAILED') AS failed
+                FROM broadcast_campaigns campaign
+                LEFT JOIN broadcast_recipients recipient
+                  ON recipient.campaign_id = campaign.id
+                WHERE campaign.tg_chat_id = ?
+                GROUP BY campaign.id
+                ORDER BY campaign.created_at DESC
+                LIMIT ?
+                """,
+                (resultSet, rowNumber) -> new CampaignSummary(
+                        resultSet.getObject("id", UUID.class),
+                        resultSet.getString("vk_group_id"),
+                        resultSet.getString("status"),
+                        resultSet.getString("message_template"),
+                        resultSet.getInt("recipients"),
+                        resultSet.getInt("sent"),
+                        resultSet.getInt("failed"),
+                        resultSet.getObject(
+                                "created_at",
+                                OffsetDateTime.class
+                        ).toInstant(),
+                        resultSet.getObject(
+                                "updated_at",
+                                OffsetDateTime.class
+                        ).toInstant()
+                ),
+                tgChatId,
+                limit
+        );
+    }
+
     private CampaignRow requireActiveCampaign(long tgChatId, boolean forUpdate) {
         return findActiveCampaign(tgChatId, forUpdate)
                 .orElseThrow(() -> new IllegalStateException(
@@ -744,6 +788,19 @@ public class BroadcastService {
             int total,
             int sent,
             int failed
+    ) {
+    }
+
+    public record CampaignSummary(
+            UUID campaignId,
+            String vkGroupId,
+            String status,
+            String messageTemplate,
+            int recipients,
+            int sent,
+            int failed,
+            Instant createdAt,
+            Instant updatedAt
     ) {
     }
 }

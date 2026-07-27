@@ -1,4 +1,5 @@
 .gradle
+/.pnpm-store/
 build/
 backups/
 .secrets/
